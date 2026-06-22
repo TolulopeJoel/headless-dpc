@@ -16,9 +16,16 @@ class RemoveActivity : Activity() {
         val admin = ComponentName(this, AdminReceiver::class.java)
 
         if (dpm.isDeviceOwnerApp(packageName)) {
-            // Remove restrictions BEFORE clearing device owner
+            // Cancel scheduled alarms before anything else
+            ScheduleReceiver.cancelAlarms(this)
+
+            // Unsuspend all apps
+            ScheduleReceiver.unrestrict(this)
+
+            // Remove user restrictions
             dpm.clearUserRestriction(admin, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
 
+            // Clear device owner
             dpm.clearDeviceOwnerApp(packageName)
             toast("Device owner cleared.")
         } else {
