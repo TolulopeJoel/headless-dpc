@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
 import java.util.Calendar
 
@@ -22,12 +23,16 @@ class ScheduleReceiver : BroadcastReceiver() {
                 liftRestriction(context)
                 scheduleUnrestrict(context)     // reschedule for tomorrow
             }
-            Intent.ACTION_BOOT_COMPLETED -> {
-                // Alarms don't survive reboots — reschedule both
+            // Group boot and time-change events together!
+            Intent.ACTION_BOOT_COMPLETED, 
+            Intent.ACTION_TIME_CHANGED, 
+            Intent.ACTION_TIMEZONE_CHANGED -> {
                 scheduleRestrict(context)
                 scheduleUnrestrict(context)
-                // If we're currently in the window, apply immediately
-                if (isInRestrictionWindow()) applyRestriction(context)
+
+                // USE applyCurrentState HERE!
+                // This ensures if it is 3:00 PM, it will force the apps to un-suspend.
+                applyCurrentState(context)
             }
         }
     }
@@ -38,7 +43,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         const val ACTION_UNRESTRICT = "com.tolu.dpc.ACTION_UNRESTRICT"
 
         private val ALLOWED_PACKAGES = setOf(
-            "org.jw.jwlibrary",
+            "org.jw.jwlibrary.mobile",
             "com.asaro.meditation",
             "com.transsnet.palmpay",
             "com.tolu.dpc"          // never suspend the DPC itself
@@ -94,15 +99,12 @@ class ScheduleReceiver : BroadcastReceiver() {
         private fun scheduleAlarm(context: Context, action: String, hour: Int, minute: Int) {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val trigger = nextOccurrence(hour, minute)
+            val pendingIntent = pendingIntentFor(context, action)
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-                && !am.canScheduleExactAlarms()
-            ) {
-                // Fallback: near-exact, good enough for a 12AM / 7AM boundary
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pendingIntentFor(context, action))
-            } else {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pendingIntentFor(context, action))
-            }
+            // Using AlarmClockInfo guarantees exact execution to the millisecond,
+            // bypassing Doze mode and manufacturer battery constraints.
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(trigger, pendingIntent)
+            am.setAlarmClock(alarmClockInfo, pendingIntent)
         }
 
         private fun nextOccurrence(hour: Int, minute: Int): Long =
@@ -114,14 +116,21 @@ class ScheduleReceiver : BroadcastReceiver() {
                 if (!after(Calendar.getInstance())) add(Calendar.DAY_OF_YEAR, 1)
             }.timeInMillis
 
-        private fun userPackages(context: Context): List<String> =
-            context.packageManager.getInstalledPackages(0)
-                .filter { pkg ->
-                    pkg.applicationInfo?.let {
-                        (it.flags and ApplicationInfo.FLAG_SYSTEM) == 0
-                    } ?: false
-                }
-                .map { it.packageName }
+        private fun userPackages(context: Context): List<String> {
+            val pm = context.packageManager
+
+            // 1. Find your default home screen launcher so we don't accidentally suspend it
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
+            val defaultLauncher = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+
+            // 2. Get every app that has a clickable icon in the app drawer
+            val launcherIntent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
+            
+            return pm.queryIntentActivities(launcherIntent, 0)
+                .map { it.activityInfo.packageName }
+                .filter { it != defaultLauncher } // Keep the home screen alive!
+                .distinct()
+        }
 
         private fun dpmAndAdmin(context: Context): Pair<DevicePolicyManager, ComponentName> {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager

@@ -38,18 +38,6 @@ class SetupActivity : Activity() {
         // Available since API 29 (Android 10). Uses the official constant — no raw strings.
         dpm.addUserRestriction(admin, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
 
-        // ── App focus window (12AM–7AM: only allowed apps) ───────────────────────
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val am = getSystemService(ALARM_SERVICE) as AlarmManager
-            if (!am.canScheduleExactAlarms()) {
-                // DNS is already locked above. User must grant this permission
-                // then re-run SetupActivity to activate scheduling.
-                toast("DNS locked. To activate focus window: Settings → Apps → Special app access → Alarms & Reminders → enable for this app. Then re-run SetupActivity.")
-                finish()
-                return
-            }
-        }
-
         ScheduleReceiver.applyCurrentState(this)
         ScheduleReceiver.scheduleAlarms(this)
 
