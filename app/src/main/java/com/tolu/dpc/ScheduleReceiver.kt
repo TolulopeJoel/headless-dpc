@@ -47,7 +47,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         // ── Public entry points ───────────────────────────────────────────────────
 
         fun scheduleRestrict(context: Context)   = scheduleAlarm(context, ACTION_RESTRICT,   0, 0)
-        fun scheduleUnrestrict(context: Context) = scheduleAlarm(context, ACTION_UNRESTRICT, 8, 0)
+        fun scheduleUnrestrict(context: Context) = scheduleAlarm(context, ACTION_UNRESTRICT, 7, 0)
 
         fun cancelAlarms(context: Context) {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -86,7 +86,7 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         fun isInRestrictionWindow(): Boolean {
             val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            return hour < 8     // 12AM–7AM
+            return hour < 7     // 12AM–7AM
         }
 
         // ── Internal helpers ──────────────────────────────────────────────────────
