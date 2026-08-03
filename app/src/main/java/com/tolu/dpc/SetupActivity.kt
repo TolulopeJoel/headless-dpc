@@ -74,6 +74,9 @@ class SetupActivity : Activity() {
         ScheduleReceiver.applyCurrentState(this)
         ScheduleReceiver.scheduleAlarms(this)
 
+        // ── Watchdog: second, independent enforcement path ────────────────────────
+        WatchdogWorker.enqueue(this)
+
         // ── Go headless ──────────────────────────────────────────────────────────
         packageManager.setComponentEnabledSetting(
             ComponentName(this, SetupActivity::class.java),
