@@ -19,6 +19,10 @@ class RemoveActivity : Activity() {
             // Cancel scheduled alarms before anything else
             ScheduleReceiver.cancelAlarms(this)
 
+            // Cancel the watchdog too — otherwise it keeps re-arming alarms
+            // and re-applying restriction state every 15 minutes forever.
+            WatchdogWorker.cancel(this)
+
             // Unsuspend all apps
             ScheduleReceiver.unrestrict(this)
 
