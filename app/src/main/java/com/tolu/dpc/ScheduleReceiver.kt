@@ -8,35 +8,68 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.util.Log
 import java.util.Calendar
 
 class ScheduleReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        Log.d(TAG, "onReceive: ${intent.action}")
+
         when (intent.action) {
             ACTION_RESTRICT -> {
-                applyRestriction(context)
-                scheduleRestrict(context)       // reschedule for tomorrow
+                // try/finally: the reschedule MUST happen even if applyRestriction throws
+                // (e.g. transient DPM/binder error, device-owner state hiccup). Previously
+                // an exception here silently killed the entire alarm chain for good —
+                // nothing would fire again until the next reboot.
+                try {
+                    applyRestriction(context)
+                } catch (e: Exception) {
+                    Log.e(TAG, "applyRestriction failed", e)
+                } finally {
+                    scheduleRestrict(context)       // reschedule for tomorrow, no matter what
+                }
             }
             ACTION_UNRESTRICT -> {
-                liftRestriction(context)
-                scheduleUnrestrict(context)     // reschedule for tomorrow
+                try {
+                    liftRestriction(context)
+                } catch (e: Exception) {
+                    Log.e(TAG, "liftRestriction failed", e)
+                } finally {
+                    scheduleUnrestrict(context)     // reschedule for tomorrow, no matter what
+                }
             }
-            // Group boot and time-change events together!
-            Intent.ACTION_BOOT_COMPLETED, 
-            Intent.ACTION_TIME_CHANGED, 
-            Intent.ACTION_TIMEZONE_CHANGED -> {
-                scheduleRestrict(context)
-                scheduleUnrestrict(context)
+            // Group boot, time-change, AND app-update events together.
+            // MY_PACKAGE_REPLACED matters because an app update (e.g. you push a new
+            // build via adb install -r) can silently drop previously-set exact alarms
+            // on some OEM builds — same failure mode as a reboot, easy to miss.
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                try {
+                    scheduleRestrict(context)
+                    scheduleUnrestrict(context)
 
-                // USE applyCurrentState HERE!
-                // This ensures if it is 3:00 PM, it will force the apps to un-suspend.
-                applyCurrentState(context)
+                    // USE applyCurrentState HERE!
+                    // This ensures if it is 3:00 PM, it will force the apps to un-suspend.
+                    applyCurrentState(context)
+
+                    // Re-arm the WorkManager watchdog too — if its own persisted
+                    // schedule got wiped for any reason, this recreates it.
+                    WatchdogWorker.enqueue(context)
+
+                    Log.d(TAG, "Full re-arm complete on ${intent.action}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Re-arm failed on ${intent.action}", e)
+                }
             }
         }
     }
 
     companion object {
+
+        private const val TAG = "dpc.ScheduleReceiver"
 
         const val ACTION_RESTRICT   = "com.tolu.dpc.ACTION_RESTRICT"
         const val ACTION_UNRESTRICT = "com.tolu.dpc.ACTION_UNRESTRICT"
@@ -80,12 +113,14 @@ class ScheduleReceiver : BroadcastReceiver() {
                 .filter { it !in ALLOWED_PACKAGES }
                 .toTypedArray()
             if (toSuspend.isNotEmpty()) dpm.setPackagesSuspended(admin, toSuspend, true)
+            Log.d(TAG, "applyRestriction: suspended ${toSuspend.size} packages")
         }
 
         fun liftRestriction(context: Context) {
             val (dpm, admin) = dpmAndAdmin(context)
             val toUnsuspend = userPackages(context).toTypedArray()
             if (toUnsuspend.isNotEmpty()) dpm.setPackagesSuspended(admin, toUnsuspend, false)
+            Log.d(TAG, "liftRestriction: unsuspended ${toUnsuspend.size} packages")
         }
 
         fun isInRestrictionWindow(): Boolean {
@@ -104,6 +139,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             // bypassing Doze mode and manufacturer battery constraints.
             val alarmClockInfo = AlarmManager.AlarmClockInfo(trigger, pendingIntent)
             am.setAlarmClock(alarmClockInfo, pendingIntent)
+            Log.d(TAG, "scheduleAlarm: $action -> $trigger")
         }
 
         private fun nextOccurrence(hour: Int, minute: Int): Long =
@@ -124,7 +160,7 @@ class ScheduleReceiver : BroadcastReceiver() {
 
             // 2. Get every app that has a clickable icon in the app drawer
             val launcherIntent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
-            
+
             return pm.queryIntentActivities(launcherIntent, 0)
                 .map { it.activityInfo.packageName }
                 .filter { it != defaultLauncher } // Keep the home screen alive!
