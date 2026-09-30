@@ -40,7 +40,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_TEST_GATE, ACTION_TEST_NIGHT, ACTION_TEST_MORNING -> testMinute = intent.getIntExtra("minute", -1)
             ACTION_TEST_END -> { testMinute = -1; previewUntil = 0L }   // enforce() below redraws the widget
-            ACTION_TEST_TIDE -> ColourKeeper.testTide(context)
+            ACTION_TEST_TIDE -> ColourKeeper.testTide(context, intent.getStringExtra("pkg") ?: "com.android.chrome")
             ACTION_TEST_COLOUR -> {
                 ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f))
                 return   // look only: pretends minutes of drift, nothing is locked
@@ -134,7 +134,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             UserManager.DISALLOW_DEBUGGING_FEATURES,
         )
 
-        /** The lock screen reads "This device belongs to Tolu" instead of "…your organisation". */
+        /** The lock screen reads "This device was modified by Tolu in ways you've never seen" instead of "…your organisation". */
         private const val OWNER_NAME = "Tolu"
 
         /** Always on: the schedule reads the clock, so the clock and time zone come from the network and can't be edited. */
@@ -152,7 +152,7 @@ class ScheduleReceiver : BroadcastReceiver() {
          */
         const val ACTION_PREVIEW = "com.tolu.dpc.ACTION_PREVIEW"
 
-        /** adb: sends the tide out now, for real (the drift apps lock for the next tide's length). */
+        /** adb: sends one app's tide out now, for real (`--es pkg com.whatsapp.w4b`; Chrome if not given). */
         const val ACTION_TEST_TIDE = "com.tolu.dpc.ACTION_TEST_TIDE"
 
         /** Apps parked until a date: the Àṣàrò dev build rests until 15 Nov 2026, the end of the Six Anchors plan. */
@@ -296,7 +296,8 @@ class ScheduleReceiver : BroadcastReceiver() {
             val packages = userPackages(context)
 
             // In the day and evening, a tide locks the drift apps, and parked apps stay parked.
-            val daytimeLocks = parked() + if (state.tide) ColourKeeper.DRIFT.keys else emptySet()
+            // Soft-tided apps (WhatsApp) stay unsuspended so calls ring; BlockScreenService turns them away instead.
+            val daytimeLocks = parked() + (ColourKeeper.tidedApps(context) - ColourKeeper.SOFT)
             val suspend = when (phase) {
                 Phase.DAY -> packages.filter { it in daytimeLocks }
                 Phase.EVENING -> packages.filter { it in SLACK || it in daytimeLocks }
@@ -320,17 +321,18 @@ class ScheduleReceiver : BroadcastReceiver() {
                 if (nightRules) dpm.addUserRestriction(admin, it) else dpm.clearUserRestriction(admin, it)
             }
             lockClock(dpm, admin)
-            if (dpm.getOrganizationName(admin)?.toString() != OWNER_NAME) dpm.setOrganizationName(admin, OWNER_NAME)
+            // Reading the organisation name back throws on this phone ("Calling user is not authorized"), which used to end
+            // this function early; setting it is allowed and idempotent, so just set it.
+            runCatching { dpm.setOrganizationName(admin, OWNER_NAME) }.onFailure { Log.e(TAG, "setOrganizationName failed", it) }
 
-            // The line under "Blocked by work policy" when a locked app is opened.
-            val message = blockedMessage(state)
-            if (dpm.getShortSupportMessage(admin)?.toString() != message) dpm.setShortSupportMessage(admin, message)
+            // The line under "Blocked by work policy" (BlockedActivity covers that dialog now, so this is a fallback).
+            runCatching { dpm.setShortSupportMessage(admin, blockedMessage(state)) }
         }
 
         /** What a locked app says, by the part of the day it's locked for. */
         fun blockedMessage(state: State): String = when {
             state.gated -> "Write today's Àṣàrò entry and your phone opens."
-            state.tide -> "Chrome, WhatsApp and Instagram are out with the tide. They come back by themselves."
+            state.tide -> "That app is out with the tide. It comes back by itself."
             state.phase == Phase.DAY -> "Àṣàrò's dev build is parked until 15 November. Your journal is open."
             state.phase == Phase.MORNING -> "Bible first. Everything opens at 7AM."
             state.phase == Phase.NIGHT -> "It's night. Rest, Tolu. JW Library and jw.org open at 5AM."

@@ -84,7 +84,12 @@ class BlockedActivity : Activity() {
         val eyebrow = text(mood.eyebrow, 12f, mood.soft, strong).apply { letterSpacing = 0.32f }
         ring = RingView(this, mood, display, strong) { minute() }
         val title = text("Not now, Tolu.", 40f, mood.ink, display).apply { setPadding(0, dp(22), 0, 0) }
-        val message = text(ScheduleReceiver.blockedMessage(state), 17f, mood.soft, body).apply {
+        // At low tide, say which app is out and that the rest are open.
+        val names = ColourKeeper.tidedNames(this)
+        val many = names.contains(" and ")
+        val why = if (mood == Mood.TIDE && !previewing) "$names ${if (many) "are" else "is"} out with the tide. ${if (many) "They come" else "It comes"} back by ${if (many) "themselves" else "itself"}; everything else is open."
+            else ScheduleReceiver.blockedMessage(state)
+        val message = text(why, 17f, mood.soft, body).apply {
             setPadding(0, dp(10), 0, 0)
             setLineSpacing(0f, 1.25f)
         }

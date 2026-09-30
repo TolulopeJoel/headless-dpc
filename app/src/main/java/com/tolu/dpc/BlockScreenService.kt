@@ -37,7 +37,16 @@ class BlockScreenService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         if (event.className?.toString() != ADMIN_DIALOG) {
-            ColourKeeper.onForeground(this, event.packageName?.toString())
+            val pkg = event.packageName?.toString()
+            // A soft tide (WhatsApp): turn it away at the door, unless it's a call, which always comes through.
+            if (pkg != null && pkg in ColourKeeper.SOFT && pkg in ColourKeeper.tidedApps(this) && !isCall(event) && !ColourKeeper.inCall(this)) {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                handler.postDelayed({
+                    startActivity(Intent(this, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+                }, 150)
+                return
+            }
+            ColourKeeper.onForeground(this, pkg)
             return
         }
         performGlobalAction(GLOBAL_ACTION_BACK)
@@ -46,6 +55,9 @@ class BlockScreenService : AccessibilityService() {
             startActivity(Intent(this, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
         }, 150)
     }
+
+    /** WhatsApp's call screens (ringing, in a call) are named for VoIP; a call is never turned away. */
+    private fun isCall(event: AccessibilityEvent) = event.className?.toString()?.contains("voip", ignoreCase = true) == true
 
     override fun onInterrupt() {}
 

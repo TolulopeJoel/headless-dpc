@@ -56,7 +56,7 @@ class FocusWidget : AppWidgetProvider() {
             0xFFFFFFFF.toInt(), 0xE6FFFFFF.toInt(), 0xFFFFE2B8.toInt(), 0x40FFFFFF, 5 * 60, 7 * 60),
         ENTRY("BEFORE ANYTHING", "Entry first.", "Write it and your phone opens",
             0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0x1F17263F, null, null),
-        TIDE("LOW TIDE", "Tide's out.", "Chrome and co. come back by themselves",
+        TIDE("LOW TIDE", "Tide's out.", "It comes back by itself",
             0xFFFFFFFF.toInt(), 0xD9FFFFFF.toInt(), 0xFF8FE3D6.toInt(), 0x33FFFFFF, null, null);
 
         fun progress(minute: Int): Float {
@@ -121,9 +121,8 @@ class FocusWidget : AppWidgetProvider() {
                 else -> "${left}m"
             }
             val status = when {
-                look == Look.TIDE -> "Back in ${tideLeft}m · JW Library is open"
-                colour <= 0f -> "All grey. Put it down to bring the colour back"
-                colour < 1f -> "Colour ${(colour * 100).toInt()}% · put it down to refill"
+                look == Look.TIDE -> "${ColourKeeper.tidedNames(context)} back in ${tideLeft}m"
+                colour <= 0f -> "All grey. At 15 minutes the tide goes out"
                 else -> look.status
             }
             val skyArt = desaturate(sky(look, minute, (wDp * density).toInt(), (hDp * density).toInt(), density), colour)
