@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Tolu's focus widget. FocusWidget draws the sky and the ring; the words are live text in Àṣàrò's fonts. -->
+<!-- Tolu's focus widget: a 1×1 tile, the ring on the part of the day's colours. FocusWidget draws both. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/focus_root"
     android:layout_width="match_parent"
@@ -13,45 +13,10 @@
         android:layout_height="match_parent"
         android:scaleType="centerCrop" />
 
-    <LinearLayout
+    <ImageView
+        android:id="@+id/focus_ring"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="14dp">
-
-        <ImageView
-            android:id="@+id/focus_ring"
-            android:layout_width="60dp"
-            android:layout_height="60dp" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <!-- Drawn in Fraunces by FocusWidget: launchers don't load an app's fonts into widgets. -->
-            <ImageView
-                android:id="@+id/focus_title"
-                android:layout_width="match_parent"
-                android:layout_height="30dp"
-                android:layout_marginTop="1dp"
-                android:layout_marginBottom="1dp"
-                android:scaleType="fitStart" />
-
-            <TextView
-                android:id="@+id/focus_status"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="@font/work_sans"
-                android:lineSpacingMultiplier="1.1"
-                android:maxLines="2"
-                android:text="Slack locks 5:30PM"
-                android:textColor="#D9FFFFFF"
-                android:textSize="11.5sp" />
-        </LinearLayout>
-    </LinearLayout>
+        android:padding="4dp"
+        android:scaleType="fitCenter" />
 </FrameLayout>
