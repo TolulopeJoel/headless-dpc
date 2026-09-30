@@ -317,8 +317,12 @@ class ScheduleReceiver : BroadcastReceiver() {
             // A test skips the device rules: blocking debugging would cut the adb session running the test,
             // and blocking tethering would cut the laptop's internet.
             val nightRules = jwOnly && !testing && !inGrace(context)
+            // Once today's entry is written (after 05:00), the hotspot comes back even before 07:00: the Bible came
+            // first, so the laptop can have its internet. USB debugging and the apps still wait for 07:00.
+            val entryWritten = phase == Phase.MORNING && hasTodaysEntry(context)
             NIGHT_RESTRICTIONS.forEach {
-                if (nightRules) dpm.addUserRestriction(admin, it) else dpm.clearUserRestriction(admin, it)
+                val keep = nightRules && !(it == UserManager.DISALLOW_CONFIG_TETHERING && entryWritten)
+                if (keep) dpm.addUserRestriction(admin, it) else dpm.clearUserRestriction(admin, it)
             }
             lockClock(dpm, admin)
             // Reading the organisation name back throws on this phone ("Calling user is not authorized"), which used to end
