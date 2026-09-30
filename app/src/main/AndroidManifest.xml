@@ -43,6 +43,7 @@
                 <action android:name="com.tolu.dpc.ACTION_GRACE" />
                 <action android:name="com.tolu.dpc.ACTION_PREVIEW" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_COLOUR" />
+                <action android:name="com.tolu.dpc.ACTION_TEST_TIDE" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_NIGHT" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_MORNING" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_END" />

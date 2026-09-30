@@ -55,7 +55,9 @@ class FocusWidget : AppWidgetProvider() {
         MORNING("BIBLE HOUR", "Bible first.", "Everything opens at 7AM",
             0xFFFFFFFF.toInt(), 0xE6FFFFFF.toInt(), 0xFFFFE2B8.toInt(), 0x40FFFFFF, 5 * 60, 7 * 60),
         ENTRY("BEFORE ANYTHING", "Entry first.", "Write it and your phone opens",
-            0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0x1F17263F, null, null);
+            0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0x1F17263F, null, null),
+        TIDE("LOW TIDE", "Tide's out.", "Chrome and co. come back by themselves",
+            0xFFFFFFFF.toInt(), 0xD9FFFFFF.toInt(), 0xFF8FE3D6.toInt(), 0x33FFFFFF, null, null);
 
         fun progress(minute: Int): Float {
             val s = start ?: return 1f
@@ -85,6 +87,7 @@ class FocusWidget : AppWidgetProvider() {
             val preview = ScheduleReceiver.previewMood()?.let { name -> Look.entries.firstOrNull { it.name == name } }
             val look = preview ?: when {
                 state.gated -> Look.ENTRY
+                state.tide -> Look.TIDE
                 state.phase == ScheduleReceiver.Phase.MORNING -> Look.MORNING
                 state.phase == ScheduleReceiver.Phase.EVENING -> Look.EVENING
                 state.phase == ScheduleReceiver.Phase.NIGHT -> Look.NIGHT
@@ -105,7 +108,20 @@ class FocusWidget : AppWidgetProvider() {
 
             // Colour: in the day and evening the widget's sky drains with the phone's, and says how to get it back.
             val colour = if (look == Look.DAY || look == Look.EVENING) ColourKeeper.colour() else 1f
+            // The ring: this part of the day, or the tide coming back in.
+            val (tStart, tUntil) = ColourKeeper.tideWindow(context)
+            val nowMs = System.currentTimeMillis()
+            val tideLeft = ((tUntil - nowMs + 59_999) / 60_000).toInt().coerceAtLeast(0)
+            val progress = if (look == Look.TIDE && tUntil > tStart) ((nowMs - tStart).toFloat() / (tUntil - tStart)).coerceIn(0f, 1f) else look.progress(minute)
+            val left = look.left(minute)
+            val label = when {
+                look == Look.TIDE -> "${tideLeft}m"
+                look.start == null -> "✎"
+                left >= 60 -> "${left / 60}h ${left % 60}m"
+                else -> "${left}m"
+            }
             val status = when {
+                look == Look.TIDE -> "Back in ${tideLeft}m · JW Library is open"
                 colour <= 0f -> "All grey. Put it down to bring the colour back"
                 colour < 1f -> "Colour ${(colour * 100).toInt()}% · put it down to refill"
                 else -> look.status
@@ -114,7 +130,7 @@ class FocusWidget : AppWidgetProvider() {
 
             return RemoteViews(context.packageName, R.layout.widget_focus).apply {
                 setImageViewBitmap(R.id.focus_sky, skyArt)
-                setImageViewBitmap(R.id.focus_ring, ring(context, look, minute, (60 * density).toInt(), density))
+                setImageViewBitmap(R.id.focus_ring, ring(context, look, progress, label, (60 * density).toInt(), density))
                 setTextViewText(R.id.focus_eyebrow, look.eyebrow)
                 setImageViewBitmap(R.id.focus_title, title(context, look, (30 * density).toInt()))
                 setContentDescription(R.id.focus_title, look.title)
@@ -147,6 +163,7 @@ class FocusWidget : AppWidgetProvider() {
                 Look.NIGHT -> Mood.NIGHT.top to Mood.NIGHT.bottom
                 Look.MORNING -> Mood.MORNING.sky(minute)
                 Look.ENTRY -> Mood.ENTRY.top to Mood.ENTRY.bottom
+                Look.TIDE -> Mood.TIDE.top to Mood.TIDE.bottom
             }
             p.shader = LinearGradient(0f, 0f, w * 0.35f, h.toFloat(), top, bottom, Shader.TileMode.CLAMP)
             c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
@@ -200,6 +217,22 @@ class FocusWidget : AppWidgetProvider() {
                     c.drawCircle(cx, cy, h * 1.1f, p)
                     p.shader = null
                 }
+                Look.TIDE -> {
+                    // Low water across the bottom, in three layers.
+                    listOf(0x5538B2AC to 0.72f, 0x6628908F to 0.8f, 0x99125E68.toInt() to 0.88f).forEachIndexed { i, (colour, level) ->
+                        val wave = android.graphics.Path()
+                        wave.moveTo(0f, h.toFloat())
+                        var x = 0f
+                        while (x <= w + 6) {
+                            wave.lineTo(x, h * level + 4 * d * sin(x / w * 5f * PI.toFloat() + i * 1.7f))
+                            x += 6f
+                        }
+                        wave.lineTo(w.toFloat(), h.toFloat())
+                        wave.close()
+                        p.color = colour
+                        c.drawPath(wave, p)
+                    }
+                }
                 Look.ENTRY -> {
                     // Àṣàrò's notebook: ruled lines and a margin.
                     p.strokeWidth = d
@@ -238,7 +271,7 @@ class FocusWidget : AppWidgetProvider() {
         }
 
         /** The ring: how much of this part of the day has gone, a tip where it's got to, and the countdown inside. */
-        private fun ring(context: Context, look: Look, minute: Int, size: Int, d: Float): Bitmap {
+        private fun ring(context: Context, look: Look, progress: Float, label: String, size: Int, d: Float): Bitmap {
             val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
             val stroke = 5.5f * d
@@ -247,8 +280,8 @@ class FocusWidget : AppWidgetProvider() {
             val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = stroke; color = look.track }
             c.drawOval(box, track)
 
-            val sweep = 360f * look.progress(minute)
-            if (sweep > 4f) {
+            val sweep = 360f * progress
+            if (sweep > 16f) {
                 val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = stroke * 2.4f; strokeCap = Paint.Cap.ROUND; color = look.accent; alpha = 40 }
                 val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = stroke; strokeCap = Paint.Cap.ROUND; color = look.accent }
                 c.drawArc(box, -90f, sweep, false, glow)
@@ -259,12 +292,6 @@ class FocusWidget : AppWidgetProvider() {
             val tip = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.accent }
             c.drawCircle(size / 2f + r * cos(a), size / 2f + r * sin(a), stroke * 0.9f, tip)
 
-            val left = look.left(minute)
-            val label = when {
-                look.start == null -> "✎"
-                left >= 60 -> "${left / 60}h ${left % 60}m"
-                else -> "${left}m"
-            }
             val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = context.resources.getFont(R.font.fraunces_black)
                 color = look.ink

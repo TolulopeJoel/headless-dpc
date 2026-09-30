@@ -40,6 +40,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_TEST_GATE, ACTION_TEST_NIGHT, ACTION_TEST_MORNING -> testMinute = intent.getIntExtra("minute", -1)
             ACTION_TEST_END -> { testMinute = -1; previewUntil = 0L }   // enforce() below redraws the widget
+            ACTION_TEST_TIDE -> ColourKeeper.testTide(context)
             ACTION_TEST_COLOUR -> {
                 ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f))
                 return   // look only: pretends minutes of drift, nothing is locked
@@ -151,6 +152,16 @@ class ScheduleReceiver : BroadcastReceiver() {
          */
         const val ACTION_PREVIEW = "com.tolu.dpc.ACTION_PREVIEW"
 
+        /** adb: sends the tide out now, for real (the drift apps lock for the next tide's length). */
+        const val ACTION_TEST_TIDE = "com.tolu.dpc.ACTION_TEST_TIDE"
+
+        /** Apps parked until a date: the Àṣàrò dev build rests until 15 Nov 2026, the end of the Six Anchors plan. */
+        private val PARKED_UNTIL = mapOf(
+            "com.asaro.meditation.dev" to Calendar.getInstance().apply { set(2026, Calendar.NOVEMBER, 15, 0, 0, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis,
+        )
+
+        private fun parked(): Set<String> = PARKED_UNTIL.filterValues { System.currentTimeMillis() < it }.keys
+
         /** adb: `--ef drift 20` pretends 20 minutes of drift, to see Colour dim (0 puts it back). */
         const val ACTION_TEST_COLOUR = "com.tolu.dpc.ACTION_TEST_COLOUR"
         @Volatile private var previewName: String? = null
@@ -158,7 +169,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         @Volatile private var previewUntil = 0L
 
         fun previewMood(): String? = previewName?.takeIf {
-            SystemClock.elapsedRealtime() < previewUntil && it in setOf("DAY", "NIGHT", "MORNING", "EVENING", "ENTRY")
+            SystemClock.elapsedRealtime() < previewUntil && it in setOf("DAY", "NIGHT", "MORNING", "EVENING", "ENTRY", "TIDE", "PARKED")
         }
 
         /** A pretend minute of the day for the blocked screen during a test, or -1. Never used by the schedule itself. */
@@ -226,7 +237,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         }
 
         /** The phase to apply, and whether it comes from an adb test (tests skip the night device rules). */
-        data class State(val phase: Phase, val test: Boolean, val gated: Boolean = false)
+        data class State(val phase: Phase, val test: Boolean, val gated: Boolean = false, val tide: Boolean = false)
 
         /** A test never loosens the real schedule: it only applies while the clock says DAY or EVENING. */
         fun currentState(context: Context): State {
@@ -234,7 +245,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             val daytime = clock == Phase.DAY || clock == Phase.EVENING
             if (daytime && SystemClock.elapsedRealtime() < testUntil) return State(testPhase, test = true)
             if (daytime && gated(context)) return State(Phase.MORNING, test = SystemClock.elapsedRealtime() < gateTestUntil, gated = true)
-            return State(clock, test = false)
+            return State(clock, test = false, tide = daytime && ColourKeeper.tideOut(context))
         }
 
         fun statusText(context: Context): String {
@@ -284,9 +295,11 @@ class ScheduleReceiver : BroadcastReceiver() {
             val testing = state.test
             val packages = userPackages(context)
 
+            // In the day and evening, a tide locks the drift apps, and parked apps stay parked.
+            val daytimeLocks = parked() + if (state.tide) ColourKeeper.DRIFT.keys else emptySet()
             val suspend = when (phase) {
-                Phase.DAY -> emptyList()
-                Phase.EVENING -> packages.filter { it in SLACK }
+                Phase.DAY -> packages.filter { it in daytimeLocks }
+                Phase.EVENING -> packages.filter { it in SLACK || it in daytimeLocks }
                 Phase.NIGHT -> packages.filter { it !in NIGHT_ALLOWED }
                 Phase.MORNING -> packages.filter { it !in MORNING_ALLOWED }
             }
@@ -317,6 +330,8 @@ class ScheduleReceiver : BroadcastReceiver() {
         /** What a locked app says, by the part of the day it's locked for. */
         fun blockedMessage(state: State): String = when {
             state.gated -> "Write today's Àṣàrò entry and your phone opens."
+            state.tide -> "Chrome, WhatsApp and Instagram are out with the tide. They come back by themselves."
+            state.phase == Phase.DAY -> "Àṣàrò's dev build is parked until 15 November. Your journal is open."
             state.phase == Phase.MORNING -> "Bible first. Everything opens at 7AM."
             state.phase == Phase.NIGHT -> "It's night. Rest, Tolu. JW Library and jw.org open at 5AM."
             state.phase == Phase.EVENING -> "Work's done for today. Slack opens again at 7AM."

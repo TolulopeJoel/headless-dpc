@@ -202,6 +202,8 @@ class BlockedActivity : Activity() {
             Action.ALARM -> launch(Intent(AlarmClock.ACTION_SHOW_ALARMS), "com.transsion.deskclock")
             Action.JW_LIBRARY -> launch(null, "org.jw.jwlibrary.mobile")
             Action.WRITE -> launch(Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage(ASARO), ASARO)
+            Action.CALL -> launch(Intent(Intent.ACTION_DIAL), "com.sh.smart.caller")
+            Action.ASARO -> launch(null, ASARO)
         }
         finish()
         @Suppress("DEPRECATION")
@@ -281,6 +283,17 @@ class BlockedActivity : Activity() {
                 "Hmmm. I'm keeping absolute record.",
                 "You're forming busy abi? Go and rest.",
             )
+            Mood.TIDE -> listOf(
+                "Fifteen minutes straight. Oya, small break.",
+                "It's coming back soon. Relax.",
+                "Again? I'm keeping absolute record.",
+                "What is that phone giving you that I'm not giving you?",
+            )
+            Mood.PARKED -> listOf(
+                "This one is resting till November. Your journal is open o.",
+                "You want to build again? Write first.",
+                "Hmmm. I'm keeping absolute record.",
+            )
             Mood.ENTRY -> listOf(
                 "Your entry first. Then everything opens.",
                 "You can find WhatsApp, but you can't find me?",
@@ -336,6 +349,8 @@ internal enum class Action(val label: String) {
     ALARM("Set an alarm"),
     JW_LIBRARY("Open JW Library"),
     WRITE("Write today's entry"),
+    CALL("Call someone"),
+    ASARO("Open Àṣàrò"),
 }
 
 /** One look per part of the day. `start`/`end` are minutes after midnight; null means there's no countdown. */
@@ -385,6 +400,26 @@ internal enum class Mood(
         start = null, end = null, until = "then it opens",
         verse = "Man must live, not on bread alone, but on every word coming from Jehovah’s mouth.", reference = "Matthew 4:4",
         primary = Action.WRITE, secondary = Action.JW_LIBRARY,
+    ),
+    /** The tide is out: the drift apps are locked for a while after a long unbroken session. */
+    TIDE(
+        "LOW TIDE", 0xFF051C24.toInt(), 0xFF0E4652.toInt(),
+        0xFFFFFFFF.toInt(), 0xCCFFFFFF.toInt(), 0xFF8FE3D6.toInt(), 0xFF051C24.toInt(), 0x26FFFFFF,
+        pill = 0xE6041820.toInt(),
+        lightBackground = false,
+        start = null, end = null, until = "till the tide's back",
+        verse = "Then your peace would become just like a river, and your righteousness like the waves of the sea.", reference = "Isaiah 48:18",
+        primary = Action.JW_LIBRARY, secondary = Action.CALL,
+    ),
+    /** An app parked until a date: the Àṣàrò dev build, until 15 Nov. */
+    PARKED(
+        "PARKED", 0xFFFBF6EC.toInt(), 0xFFEEDFC6.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFF8EE.toInt(), 0x1A17263F,
+        pill = 0xFFE6D8C2.toInt(),
+        lightBackground = true,
+        start = null, end = null, until = "until 15 Nov",
+        verse = "The plans of the diligent surely lead to success.", reference = "Proverbs 21:5",
+        primary = Action.ASARO, secondary = null,
     );
 
     /** How far through the lock the clock is, 0..1; the sun and the ring both use it. */
@@ -431,13 +466,18 @@ internal enum class Mood(
         MORNING -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.MORNING, test = true)
         EVENING -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.EVENING, test = true)
         ENTRY -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.MORNING, test = true, gated = true)
+        TIDE -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true, tide = true)
+        PARKED -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true)
     }
 
     companion object {
         fun of(state: ScheduleReceiver.Companion.State): Mood = when {
             state.gated -> ENTRY
+            state.tide -> TIDE
             state.phase == ScheduleReceiver.Phase.MORNING -> MORNING
             state.phase == ScheduleReceiver.Phase.EVENING -> EVENING
+            // In the day, the only thing locked outside a tide is a parked app.
+            state.phase == ScheduleReceiver.Phase.DAY -> PARKED
             else -> NIGHT
         }
     }
@@ -461,6 +501,7 @@ private class SkyView(context: Context, private val mood: Mood, private val minu
     private var shootAt = 2.5f
     private var shootFrom = floatArrayOf(0.2f, 0.08f)
     private val moon = Path()
+    private val wave = Path()
 
     private fun moonPhase() = SkyArt.moonPhase()
 
@@ -487,9 +528,11 @@ private class SkyView(context: Context, private val mood: Mood, private val minu
             Mood.MORNING -> sun(canvas, w, h, rising = true)
             Mood.EVENING -> sun(canvas, w, h, rising = false)
             Mood.ENTRY -> paper(canvas, w, h)
+            Mood.TIDE -> sea(canvas, w, h, t)
+            Mood.PARKED -> daylight(canvas, w, h)
         }
         // Only the night sky moves every frame; the sun is redrawn now and then as the clock moves it.
-        if (mood == Mood.NIGHT) postInvalidateOnAnimation() else postInvalidateDelayed(20_000)
+        if (mood == Mood.NIGHT || mood == Mood.TIDE) postInvalidateOnAnimation() else postInvalidateDelayed(20_000)
     }
 
     private fun night(canvas: Canvas, w: Float, h: Float, t: Float) {
@@ -543,6 +586,41 @@ private class SkyView(context: Context, private val mood: Mood, private val minu
         canvas.drawCircle(cx, cy, w * 0.9f, glow)
         glow.shader = RadialGradient(cx, cy, w * 0.2f, intArrayOf(core, core, 0x00FFFFFF), floatArrayOf(0f, 0.72f, 1f), Shader.TileMode.CLAMP)
         canvas.drawCircle(cx, cy, w * 0.2f, glow)
+        glow.shader = null
+    }
+
+    /** Three layers of sea, rolling slowly; the water rises as the tide comes back. */
+    private fun sea(canvas: Canvas, w: Float, h: Float, t: Float) {
+        val (start, until) = ColourKeeper.tideWindow(context)
+        val now = System.currentTimeMillis()
+        val back = if (until > now && until > start) ((now - start).toFloat() / (until - start)).coerceIn(0f, 1f) else 0.4f
+        val level = h * (0.93f - 0.22f * back)
+        val layers = listOf(
+            Triple(0x5538B2AC, 16f, 0.35f),
+            Triple(0x6628908F, 12f, -0.5f),
+            Triple(0x99125E68.toInt(), 9f, 0.7f),
+        )
+        layers.forEachIndexed { i, (colour, amp, speed) ->
+            wave.reset()
+            val top = level + i * 14 * d
+            wave.moveTo(0f, h)
+            var x = 0f
+            while (x <= w + 8) {
+                val y = top + amp * d * sin(x / w * 2.4f * PI.toFloat() + t * speed + i * 1.7f)
+                wave.lineTo(x, y)
+                x += 8f
+            }
+            wave.lineTo(w, h)
+            wave.close()
+            glow.color = colour
+            canvas.drawPath(wave, glow)
+        }
+    }
+
+    /** Daylight: a soft sun in the corner, for a parked app in the day. */
+    private fun daylight(canvas: Canvas, w: Float, h: Float) {
+        glow.shader = RadialGradient(w * 0.88f, h * 0.06f, w * 0.8f, intArrayOf(0x55FFD28A, 0x18FFD28A, 0x00FFD28A), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        canvas.drawCircle(w * 0.88f, h * 0.06f, w * 0.8f, glow)
         glow.shader = null
     }
 
@@ -603,13 +681,35 @@ private class RingView(
         target = mood.progress(m)
         val left = mood.minutesLeft(m)
         centre = when {
+            mood == Mood.TIDE -> tideCountdown()
+            mood == Mood.PARKED -> parkedCountdown()
             mood.start == null -> "✎"
             left >= 60 -> "${left / 60}h ${left % 60}m"
             else -> "${left}m"
         }
-        contentDescription = if (mood.start == null) "Locked until today's entry" else "$centre ${mood.until}"
+        contentDescription = if (mood == Mood.ENTRY) "Locked until today's entry" else "$centre ${mood.until}"
         if (shown > 0f) shown = target
         invalidate()
+    }
+
+    /** Minutes until the tide is back; the ring fills as it comes in. (A preview with no tide shows a sample.) */
+    private fun tideCountdown(): String {
+        val (start, until) = ColourKeeper.tideWindow(context)
+        val now = System.currentTimeMillis()
+        if (until <= now || until <= start) { target = 0.4f; return "9m" }
+        target = ((now - start).toFloat() / (until - start)).coerceIn(0f, 1f)
+        val left = ((until - now + 59_999) / 60_000).toInt()
+        return "${left}m"
+    }
+
+    /** Days until 15 Nov; the ring fills from 30 Sep, when the Six Anchors plan began. */
+    private fun parkedCountdown(): String {
+        val from = Calendar.getInstance().apply { set(2026, Calendar.SEPTEMBER, 30, 0, 0, 0) }.timeInMillis
+        val to = Calendar.getInstance().apply { set(2026, Calendar.NOVEMBER, 15, 0, 0, 0) }.timeInMillis
+        val now = System.currentTimeMillis()
+        target = ((now - from).toFloat() / (to - from)).coerceIn(0f, 1f)
+        val days = ((to - now + 86_399_999) / 86_400_000).toInt().coerceAtLeast(0)
+        return "${days}d"
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -637,7 +737,7 @@ private class RingView(
         }
 
         val sweep = 360f * shown.coerceIn(0f, 1f)
-        if (sweep > 6f) {
+        if (sweep > 16f) {   // a sliver of arc reads as a toggle switch; the glowing tip alone says "just started"
             glow.alpha = (16 + 28 * breath).toInt()
             canvas.drawArc(box, -90f, sweep, false, glow)
             canvas.drawArc(box, -90f, sweep, false, arc)
