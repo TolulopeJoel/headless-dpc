@@ -17,54 +17,16 @@ class ScheduleReceiver : BroadcastReceiver() {
         Log.d(TAG, "onReceive: ${intent.action}")
 
         when (intent.action) {
-            ACTION_RESTRICT -> {
-                // try/finally: the reschedule MUST happen even if applyRestriction throws
-                // (e.g. transient DPM/binder error, device-owner state hiccup). Previously
-                // an exception here silently killed the entire alarm chain for good —
-                // nothing would fire again until the next reboot.
-                try {
-                    applyRestriction(context)
-                } catch (e: Exception) {
-                    Log.e(TAG, "applyRestriction failed", e)
-                } finally {
-                    scheduleRestrict(context)       // reschedule for tomorrow, no matter what
-                }
-            }
-            ACTION_UNRESTRICT -> {
-                try {
-                    liftRestriction(context)
-                } catch (e: Exception) {
-                    Log.e(TAG, "liftRestriction failed", e)
-                } finally {
-                    scheduleUnrestrict(context)     // reschedule for tomorrow, no matter what
-                }
-            }
-            // Group boot, time-change, AND app-update events together.
-            // MY_PACKAGE_REPLACED matters because an app update (e.g. you push a new
-            // build via adb install -r) can silently drop previously-set exact alarms
-            // on some OEM builds — same failure mode as a reboot, easy to miss.
-            Intent.ACTION_BOOT_COMPLETED,
-            Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED,
-            Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                try {
-                    scheduleRestrict(context)
-                    scheduleUnrestrict(context)
-
-                    // USE applyCurrentState HERE!
-                    // This ensures if it is 3:00 PM, it will force the apps to un-suspend.
-                    applyCurrentState(context)
-
-                    // Re-arm the WorkManager watchdog too — if its own persisted
-                    // schedule got wiped for any reason, this recreates it.
-                    WatchdogWorker.enqueue(context)
-
-                    Log.d(TAG, "Full re-arm complete on ${intent.action}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Re-arm failed on ${intent.action}", e)
-                }
-            }
+            ACTION_RESTRICT -> runLogged("applyRestriction") { applyRestriction(context) }
+            ACTION_UNRESTRICT -> runLogged("liftRestriction") { liftRestriction(context) }
+            // Boot, time/zone change, app update: work out the correct state from the clock.
+            else -> runLogged("applyCurrentState") { applyCurrentState(context) }
         }
+
+        // Every path re-arms both alarms and restarts the keep-alive service.
+        // HiOS's Hiber freezer drops the alarms of a frozen app, so nothing may rely on one alarm surviving.
+        runLogged("scheduleAlarms") { scheduleAlarms(context) }
+        KeepAliveService.start(context)
     }
 
     companion object {
@@ -73,6 +35,9 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         const val ACTION_RESTRICT   = "com.tolu.dpc.ACTION_RESTRICT"
         const val ACTION_UNRESTRICT = "com.tolu.dpc.ACTION_UNRESTRICT"
+
+        private const val RESTRICT_HOUR = 0
+        private const val UNRESTRICT_HOUR = 7
 
         private val ALLOWED_PACKAGES = setOf(
             "org.jw.jwlibrary.mobile",
@@ -83,8 +48,19 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         // ── Public entry points ───────────────────────────────────────────────────
 
-        fun scheduleRestrict(context: Context)   = scheduleAlarm(context, ACTION_RESTRICT,   0, 0)
-        fun scheduleUnrestrict(context: Context) = scheduleAlarm(context, ACTION_UNRESTRICT, 7, 0)
+        /** Idempotent: correct the suspension state and re-arm both alarms. Safe to call as often as you like. */
+        fun enforce(context: Context) {
+            runLogged("applyCurrentState") { applyCurrentState(context) }
+            runLogged("scheduleAlarms") { scheduleAlarms(context) }
+        }
+
+        fun scheduleRestrict(context: Context)   = scheduleAlarm(context, ACTION_RESTRICT,   RESTRICT_HOUR, 0)
+        fun scheduleUnrestrict(context: Context) = scheduleAlarm(context, ACTION_UNRESTRICT, UNRESTRICT_HOUR, 0)
+
+        fun scheduleAlarms(context: Context) {
+            scheduleRestrict(context)
+            scheduleUnrestrict(context)
+        }
 
         fun cancelAlarms(context: Context) {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -95,16 +71,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         fun unrestrict(context: Context) = liftRestriction(context)
 
         fun applyCurrentState(context: Context) {
-            if (isInRestrictionWindow()) {
-                applyRestriction(context)
-            } else {
-                liftRestriction(context)
-            }
-        }
-
-        fun scheduleAlarms(context: Context) {
-            scheduleRestrict(context)
-            scheduleUnrestrict(context)
+            if (isInRestrictionWindow()) applyRestriction(context) else liftRestriction(context)
         }
 
         fun applyRestriction(context: Context) {
@@ -125,20 +92,24 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         fun isInRestrictionWindow(): Boolean {
             val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            return hour < 7     // 12AM–7AM
+            return hour in RESTRICT_HOUR until UNRESTRICT_HOUR     // 12AM–7AM
         }
 
         // ── Internal helpers ──────────────────────────────────────────────────────
+
+        private inline fun runLogged(what: String, block: () -> Unit) {
+            try {
+                block()
+            } catch (e: Exception) {
+                Log.e(TAG, "$what failed", e)
+            }
+        }
 
         private fun scheduleAlarm(context: Context, action: String, hour: Int, minute: Int) {
             val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val trigger = nextOccurrence(hour, minute)
             val pendingIntent = pendingIntentFor(context, action)
-
-            // Using AlarmClockInfo guarantees exact execution to the millisecond,
-            // bypassing Doze mode and manufacturer battery constraints.
-            val alarmClockInfo = AlarmManager.AlarmClockInfo(trigger, pendingIntent)
-            am.setAlarmClock(alarmClockInfo, pendingIntent)
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(trigger, pendingIntent), pendingIntent)
             Log.d(TAG, "scheduleAlarm: $action -> $trigger")
         }
 
@@ -154,16 +125,14 @@ class ScheduleReceiver : BroadcastReceiver() {
         private fun userPackages(context: Context): List<String> {
             val pm = context.packageManager
 
-            // 1. Find your default home screen launcher so we don't accidentally suspend it
+            // Never suspend the home screen launcher.
             val homeIntent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
             val defaultLauncher = pm.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
 
-            // 2. Get every app that has a clickable icon in the app drawer
             val launcherIntent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
-
             return pm.queryIntentActivities(launcherIntent, 0)
                 .map { it.activityInfo.packageName }
-                .filter { it != defaultLauncher } // Keep the home screen alive!
+                .filter { it != defaultLauncher }
                 .distinct()
         }
 

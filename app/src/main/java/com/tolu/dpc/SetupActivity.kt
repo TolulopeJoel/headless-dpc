@@ -74,8 +74,8 @@ class SetupActivity : Activity() {
         ScheduleReceiver.applyCurrentState(this)
         ScheduleReceiver.scheduleAlarms(this)
 
-        // ── Watchdog: second, independent enforcement path ────────────────────────
-        WatchdogWorker.enqueue(this)
+        // ── Keep-alive: stops HiOS freezing the app and dropping its alarms ───────
+        KeepAliveService.start(this)
 
         // ── Go headless ──────────────────────────────────────────────────────────
         packageManager.setComponentEnabledSetting(
