@@ -43,7 +43,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             ACTION_TEST_END -> { testMinute = -1; previewUntil = 0L }   // enforce() below redraws the widget
             ACTION_TEST_TIDE -> ColourKeeper.testTide(context, intent.getStringExtra("pkg") ?: "com.android.chrome")
             ACTION_TEST_COLOUR -> {
-                ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f))
+                ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f), intent.getStringExtra("pkg") ?: "com.android.chrome")
                 return   // look only: pretends minutes of drift, nothing is locked
             }
             ACTION_PREVIEW -> {
