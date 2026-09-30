@@ -143,7 +143,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         )
 
         /** The lock screen reads "This device was modified by Tolu in ways you've never seen" instead of "…your organisation". */
-        private const val OWNER_NAME = "Tolu"
+        private const val OWNER_NAME = "Tolu, who keeps his word"
 
         /** Always on: the schedule reads the clock, so the clock and time zone come from the network and can't be edited. */
         private val ALWAYS_RESTRICTIONS = listOf(UserManager.DISALLOW_CONFIG_DATE_TIME)
@@ -337,9 +337,25 @@ class ScheduleReceiver : BroadcastReceiver() {
             // Reading the organisation name back throws on this phone ("Calling user is not authorized"), which used to end
             // this function early; setting it is allowed and idempotent, so just set it.
             runCatching { dpm.setOrganizationName(admin, OWNER_NAME) }.onFailure { Log.e(TAG, "setOrganizationName failed", it) }
+            // A second lock-screen line that follows the day.
+            runCatching { dpm.setDeviceOwnerLockScreenInfo(admin, lockScreenLine(context, state)) }.onFailure { Log.e(TAG, "lock screen line failed", it) }
 
             // The line under "Blocked by work policy" (BlockedActivity covers that dialog now, so this is a fallback).
             runCatching { dpm.setShortSupportMessage(admin, blockedMessage(state)) }
+        }
+
+        /** The lock screen's own line, by the part of the day. */
+        private fun lockScreenLine(context: Context, state: State): String {
+            val m = minuteNow()
+            return when {
+                state.gated -> "Answer two questions in Àṣàrò. Then it all opens."
+                state.phase == Phase.MORNING -> if (hasTodaysEntry(context)) "Entry done. Everything opens at 7." else "Bible first. Everything opens at 7."
+                state.tide -> "Tide's out for ${ColourKeeper.tidedNames(context)}. Everything else is open."
+                state.phase == Phase.DAY -> "Open. Use it on purpose."
+                state.phase == Phase.EVENING -> "Work's done. Everything rests at 8."
+                state.phase == Phase.NIGHT && m >= 20 * 60 && m < BIBLE_UNTIL -> "The Bible's open till 10. Everything else is resting."
+                else -> "Rest. JW Library opens at 5."
+            }
         }
 
         /** What a locked app says, by the part of the day it's locked for. */

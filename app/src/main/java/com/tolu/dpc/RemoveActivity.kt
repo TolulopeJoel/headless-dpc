@@ -25,6 +25,7 @@ class RemoveActivity : Activity() {
             // Unsuspend all apps, clear Chrome's site rules and the night device rules, and give the colour back
             ScheduleReceiver.unrestrict(this)
             ColourKeeper.reset(this)
+            runCatching { dpm.setDeviceOwnerLockScreenInfo(admin, null) }
 
             // Remove user restrictions
             dpm.clearUserRestriction(admin, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
