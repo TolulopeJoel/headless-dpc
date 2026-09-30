@@ -48,13 +48,13 @@ class FocusWidget : AppWidgetProvider() {
     ) {
         DAY("OPEN", "All clear.", "Slack locks at 5:30PM",
             0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0x1F17263F, 7 * 60, 17 * 60 + 30),
-        EVENING("EVENING", "Work's done.", "Everything locks at 9PM",
-            0xFFFFFFFF.toInt(), 0xD9FFFFFF.toInt(), 0xFFE18F43.toInt(), 0x33FFFFFF, 17 * 60 + 30, 21 * 60),
+        EVENING("EVENING", "Work's done.", "Everything locks at 8PM",
+            0xFFFFFFFF.toInt(), 0xD9FFFFFF.toInt(), 0xFFE18F43.toInt(), 0x33FFFFFF, 17 * 60 + 30, 20 * 60),
         NIGHT("NIGHT", "Rest, Tolu.", "JW Library and jw.org at 5AM",
-            0xFFEFE6D8.toInt(), 0xC7EFE6D8.toInt(), 0xFFE8D6A0.toInt(), 0x26FFFFFF, 21 * 60, 5 * 60),
+            0xFFEFE6D8.toInt(), 0xC7EFE6D8.toInt(), 0xFFE8D6A0.toInt(), 0x26FFFFFF, 20 * 60, 5 * 60),
         MORNING("BIBLE HOUR", "Bible first.", "Everything opens at 7AM",
             0xFFFFFFFF.toInt(), 0xE6FFFFFF.toInt(), 0xFFFFE2B8.toInt(), 0x40FFFFFF, 5 * 60, 7 * 60),
-        ENTRY("BEFORE ANYTHING", "Entry first.", "Write it and your phone opens",
+        ENTRY("BEFORE ANYTHING", "Entry first.", "Answer two questions to open",
             0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0x1F17263F, null, null),
         TIDE("LOW TIDE", "Tide's out.", "It comes back by itself",
             0xFFFFFFFF.toInt(), 0xD9FFFFFF.toInt(), 0xFF8FE3D6.toInt(), 0x33FFFFFF, null, null);
@@ -122,6 +122,7 @@ class FocusWidget : AppWidgetProvider() {
             }
             val status = when {
                 look == Look.TIDE -> "${ColourKeeper.tidedNames(context)} back in ${tideLeft}m"
+                look == Look.NIGHT && ScheduleReceiver.bibleEvening() -> "JW Library and Àṣàrò open till 10PM"
                 colour <= 0f -> "All grey. At 15 minutes the tide goes out"
                 else -> look.status
             }

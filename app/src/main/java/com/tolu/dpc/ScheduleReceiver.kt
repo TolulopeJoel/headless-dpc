@@ -20,7 +20,9 @@ import java.util.Calendar
  *   05:00  MORNING  Chrome (jw.org and wol.jw.org only), JW Library and Àṣàrò open
  *   07:00  DAY      everything open, once today's Àṣàrò entry exists (until then it stays MORNING; 12:00 releases it regardless)
  *   17:30  EVENING  Slack locks
- *   21:00  NIGHT    everything locks except calls, PalmPay and the clock; hotspot off
+ *   20:00  NIGHT    everything locks except calls, PalmPay, the clock, JW Library and Àṣàrò
+ *   21:00           hotspot and USB debugging off (the laptop's internet)
+ *   22:00           JW Library and Àṣàrò lock too
  * Every trigger works out the phase from the clock, so a missed or extra alarm can't leave the phone in the wrong state.
  */
 class ScheduleReceiver : BroadcastReceiver() {
@@ -91,7 +93,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             5 * 60 to Phase.MORNING,
             7 * 60 to Phase.DAY,
             17 * 60 + 30 to Phase.EVENING,
-            21 * 60 to Phase.NIGHT,
+            20 * 60 to Phase.NIGHT,
         )
 
         /** The morning gate: an entry counts for today only if it was saved after 05:00; 12:00 releases the gate regardless. */
@@ -100,8 +102,18 @@ class ScheduleReceiver : BroadcastReceiver() {
         private const val PREFS = "focus"
         private const val KEY_LAST_ENTRY = "last_entry_millis"
 
-        /** Alarm times: the phase boundaries plus the gate's release. */
-        private val ALARM_MINUTES = BOUNDARIES.map { it.first } + GATE_RELEASE
+        /** Inside the night: the Bible and Àṣàrò stay open until 22:00; the hotspot and debugging go at 21:00. */
+        private const val BIBLE_UNTIL = 22 * 60
+        private const val DEVICE_RULES_FROM = 21 * 60
+        private val BIBLE_APPS = setOf("org.jw.jwlibrary.mobile", "com.asaro.meditation")
+
+        /** Alarm times: the phase boundaries, the two steps inside the night, and the gate's release. */
+        private val ALARM_MINUTES = BOUNDARIES.map { it.first } + DEVICE_RULES_FROM + BIBLE_UNTIL + GATE_RELEASE
+
+        private fun minuteNow(): Int = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
+
+        /** 20:00–22:00: the night has started, but the Bible and Àṣàrò are still open. */
+        fun bibleEvening(): Boolean = minuteNow().let { it >= 20 * 60 && it < BIBLE_UNTIL }
 
         private const val CHROME = "com.android.chrome"
         private val SLACK = setOf("com.Slack")
@@ -245,11 +257,11 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         fun statusText(context: Context): String {
             val state = currentState(context)
-            if (state.gated) return "Write today's Àṣàrò entry to open"
+            if (state.gated) return "Answer two questions in Àṣàrò to open"
             return when (state.phase) {
                 Phase.MORNING -> "Bible hour · entry opens the phone"
                 Phase.DAY -> "Open · Slack locks 5:30PM"
-                Phase.EVENING -> "Slack off · all locks 9PM"
+                Phase.EVENING -> "Slack off · all locks 8PM"
                 Phase.NIGHT -> "Locked · jw.org opens 5AM"
             }
         }
@@ -296,7 +308,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             val suspend = when (phase) {
                 Phase.DAY -> packages.filter { it in daytimeLocks }
                 Phase.EVENING -> packages.filter { it in SLACK || it in daytimeLocks }
-                Phase.NIGHT -> packages.filter { it !in NIGHT_ALLOWED }
+                Phase.NIGHT -> packages.filter { it !in NIGHT_ALLOWED && !(bibleEvening() && it in BIBLE_APPS) }
                 Phase.MORNING -> packages.filter { it !in MORNING_ALLOWED }
             }
             val release = packages - suspend.toSet()
@@ -311,7 +323,9 @@ class ScheduleReceiver : BroadcastReceiver() {
 
             // A test skips the device rules: blocking debugging would cut the adb session running the test,
             // and blocking tethering would cut the laptop's internet.
-            val nightRules = jwOnly && !testing && !inGrace(context)
+            // The hotspot and debugging wait until 21:00 (the plan's "laptop shut"), even though the apps lock at 20:00.
+            val beforeNine = phase == Phase.NIGHT && minuteNow().let { it >= 20 * 60 && it < DEVICE_RULES_FROM }
+            val nightRules = jwOnly && !testing && !inGrace(context) && !beforeNine
             // Once today's entry is written (after 05:00), the hotspot comes back even before 07:00: the Bible came
             // first, so the laptop can have its internet. USB debugging and the apps still wait for 07:00.
             val entryWritten = phase == Phase.MORNING && hasTodaysEntry(context)
@@ -330,7 +344,8 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         /** What a locked app says, by the part of the day it's locked for. */
         fun blockedMessage(state: State): String = when {
-            state.gated -> "Write today's Àṣàrò entry and your phone opens."
+            state.gated -> "Answer two questions in today's Àṣàrò entry and your phone opens."
+            state.phase == Phase.NIGHT && bibleEvening() -> "It's night. JW Library and Àṣàrò are open until 10PM."
             state.tide -> "That app is out with the tide. It comes back by itself."
             state.phase == Phase.DAY -> "Àṣàrò's dev build is parked until 15 November. Your journal is open."
             state.phase == Phase.MORNING -> "Bible first. Everything opens at 7AM."

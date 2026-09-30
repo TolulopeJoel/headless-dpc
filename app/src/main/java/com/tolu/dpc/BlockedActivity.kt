@@ -114,12 +114,16 @@ class BlockedActivity : Activity() {
         }
 
         // One button for the good thing; everything else is a quiet link.
-        val primary = pill(mood.primary.label, filled = true, strong) { run(mood.primary) }
+        // 20:00–22:00 the night has begun but the Bible is still open, so that's the thing to offer.
+        val bibleEvening = mood == Mood.NIGHT && !previewing && ScheduleReceiver.bibleEvening()
+        val first = if (bibleEvening) Action.JW_LIBRARY else mood.primary
+        val second = if (bibleEvening) Action.GOODNIGHT else mood.secondary
+        val primary = pill(first.label, filled = true, strong) { run(first) }
         val links = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        listOfNotNull(mood.secondary, Action.HOME.takeIf { mood.primary != Action.HOME }).forEachIndexed { i, action ->
+        listOfNotNull(second, Action.HOME.takeIf { first != Action.HOME }).forEachIndexed { i, action ->
             if (i > 0) links.addView(text("·", 14f, mood.soft, strong).apply { setPadding(dp(6), 0, dp(6), 0) })
             links.addView(text(action.label, 14f, mood.soft, strong).apply {
                 setPadding(dp(10), dp(12), dp(10), dp(12))
@@ -315,10 +319,10 @@ class BlockedActivity : Activity() {
                 "Hmmm. I'm keeping absolute record.",
             )
             Mood.ENTRY -> listOf(
-                "Your entry first. Then everything opens.",
+                "Two answers first. Then everything opens.",
                 "You can find WhatsApp, but you can't find me?",
                 "Three tries. I'm keeping absolute record.",
-                "Oya, come. One reading, three sentences. We start somewhere.",
+                "Oya, come. One reading, two answers. We start somewhere.",
             )
         }
         return lines.getOrNull(tries - 1) ?: "I'm on your side o. That's why I disturb."
@@ -390,7 +394,7 @@ internal enum class Mood(
         0xFFEFE6D8.toInt(), 0xB8EFE6D8.toInt(), 0xFFE8D6A0.toInt(), 0xFF17263F.toInt(), 0x1FFFFFFF,
         pill = 0xFF1C2A44.toInt(),
         lightBackground = false,
-        start = 21 * 60, end = 5 * 60, until = "until 5AM",
+        start = 20 * 60, end = 5 * 60, until = "until 5AM",
         verse = "For he provides sleep for those he loves.", reference = "Psalm 127:2",
         primary = Action.GOODNIGHT, secondary = Action.ALARM,
     ),
@@ -472,11 +476,11 @@ internal enum class Mood(
     }
 
     /**
-     * How far through its own light the sky is: dawn is 05:00–07:00, dusk 17:30–21:00. (The evening lock itself runs
+     * How far through its own light the sky is: dawn is 05:00–07:00, dusk 17:30–20:00. (The evening lock itself runs
      * to 07:00 for Slack, but the evening sky ends when the night takes over.)
      */
     fun skyProgress(minute: Int): Float = when (this) {
-        EVENING -> ((minute - (17 * 60 + 30)) / 210f).coerceIn(0f, 1f)
+        EVENING -> ((minute - (17 * 60 + 30)) / 150f).coerceIn(0f, 1f)
         else -> progress(minute)
     }
 

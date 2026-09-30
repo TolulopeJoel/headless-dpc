@@ -83,7 +83,7 @@ class SetupActivity : Activity() {
             PackageManager.DONT_KILL_APP
         )
 
-        toast("Done. DNS locked to $dotHost. Focus schedule on: Slack 5:30PM, all 9PM, jw.org 5AM, open 7AM.")
+        toast("Done. DNS locked to $dotHost. Focus schedule on: Slack 5:30PM, all 8PM, Bible 10PM, jw.org 5AM, open 7AM.")
         finish()
     }
 
