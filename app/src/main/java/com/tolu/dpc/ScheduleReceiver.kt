@@ -40,6 +40,10 @@ class ScheduleReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_TEST_GATE, ACTION_TEST_NIGHT, ACTION_TEST_MORNING -> testMinute = intent.getIntExtra("minute", -1)
             ACTION_TEST_END -> { testMinute = -1; previewUntil = 0L }   // enforce() below redraws the widget
+            ACTION_TEST_COLOUR -> {
+                ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f))
+                return   // look only: pretends minutes of drift, nothing is locked
+            }
             ACTION_PREVIEW -> {
                 previewName = intent.getStringExtra("mood")?.uppercase()
                 previewMinute = intent.getIntExtra("minute", -1)
@@ -146,6 +150,9 @@ class ScheduleReceiver : BroadcastReceiver() {
          * at night too.
          */
         const val ACTION_PREVIEW = "com.tolu.dpc.ACTION_PREVIEW"
+
+        /** adb: `--ef drift 20` pretends 20 minutes of drift, to see Colour dim (0 puts it back). */
+        const val ACTION_TEST_COLOUR = "com.tolu.dpc.ACTION_TEST_COLOUR"
         @Volatile private var previewName: String? = null
         @Volatile var previewMinute = -1
         @Volatile private var previewUntil = 0L

@@ -22,8 +22,9 @@ class RemoveActivity : Activity() {
             // Stop the keep-alive too, or it re-arms alarms and re-applies the window every 5 minutes.
             KeepAliveService.stop(this)
 
-            // Unsuspend all apps, clear Chrome's site rules and the night device rules
+            // Unsuspend all apps, clear Chrome's site rules and the night device rules, and give the colour back
             ScheduleReceiver.unrestrict(this)
+            ColourKeeper.reset(this)
 
             // Remove user restrictions
             dpm.clearUserRestriction(admin, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)

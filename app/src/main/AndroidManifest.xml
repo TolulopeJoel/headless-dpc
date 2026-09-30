@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
@@ -7,6 +8,9 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Colour dims and greys the screen through two display settings; granted once with adb pm grant. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
 
     <application
         android:testOnly="true"
@@ -38,6 +42,7 @@
                 <action android:name="com.tolu.dpc.ACTION_ENTRY_SAVED" />
                 <action android:name="com.tolu.dpc.ACTION_GRACE" />
                 <action android:name="com.tolu.dpc.ACTION_PREVIEW" />
+                <action android:name="com.tolu.dpc.ACTION_TEST_COLOUR" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_NIGHT" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_MORNING" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_END" />

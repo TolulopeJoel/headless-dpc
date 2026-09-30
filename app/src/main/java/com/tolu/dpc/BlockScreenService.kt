@@ -1,7 +1,10 @@
 package com.tolu.dpc
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -9,14 +12,34 @@ import android.view.accessibility.AccessibilityEvent
 /**
  * Android shows its own "Blocked by work policy" dialog for a locked app, and a device owner can't change its words.
  * This closes that dialog as soon as it appears and opens BlockedActivity, which says why and until when.
+ * It also tells ColourKeeper which app is in front (the package name only; no window content is read).
  */
 class BlockScreenService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    private val colourTick = object : Runnable {
+        override fun run() {
+            ColourKeeper.tick(this@BlockScreenService)
+            handler.postDelayed(this, 30_000)
+        }
+    }
+
+    private val screen = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val on = intent.action == Intent.ACTION_SCREEN_ON
+            ColourKeeper.onScreen(context, on)
+            handler.removeCallbacks(colourTick)
+            if (on) handler.postDelayed(colourTick, 30_000)
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        if (event.className?.toString() != ADMIN_DIALOG) return
+        if (event.className?.toString() != ADMIN_DIALOG) {
+            ColourKeeper.onForeground(this, event.packageName?.toString())
+            return
+        }
         performGlobalAction(GLOBAL_ACTION_BACK)
         // After the dialog has gone, or the back press would close ours instead.
         handler.postDelayed({
@@ -29,10 +52,14 @@ class BlockScreenService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         running = this
+        registerReceiver(screen, IntentFilter().apply { addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF) })
+        handler.postDelayed(colourTick, 30_000)
     }
 
     override fun onDestroy() {
         running = null
+        handler.removeCallbacks(colourTick)
+        runCatching { unregisterReceiver(screen) }
         super.onDestroy()
     }
 

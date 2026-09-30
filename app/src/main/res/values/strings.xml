@@ -1,3 +1,3 @@
 <resources>
-    <string name="block_screen_description">Shows Tolu\'s own message in place of Android\'s \"Blocked by work policy\" dialog when a locked app is opened.</string>
+    <string name="block_screen_description">Shows Tolu\'s own screen in place of Android\'s \"Blocked by work policy\" dialog, and keeps the phone\'s colour for things done on purpose. Reads only which app is open, never what is in it.</string>
 </resources>

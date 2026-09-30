@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RadialGradient
@@ -101,13 +103,22 @@ class FocusWidget : AppWidgetProvider() {
             val wDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: 190
             val hDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 94
 
+            // Colour: in the day and evening the widget's sky drains with the phone's, and says how to get it back.
+            val colour = if (look == Look.DAY || look == Look.EVENING) ColourKeeper.colour() else 1f
+            val status = when {
+                colour <= 0f -> "All grey. Put it down to bring the colour back"
+                colour < 1f -> "Colour ${(colour * 100).toInt()}% · put it down to refill"
+                else -> look.status
+            }
+            val skyArt = desaturate(sky(look, minute, (wDp * density).toInt(), (hDp * density).toInt(), density), colour)
+
             return RemoteViews(context.packageName, R.layout.widget_focus).apply {
-                setImageViewBitmap(R.id.focus_sky, sky(look, minute, (wDp * density).toInt(), (hDp * density).toInt(), density))
+                setImageViewBitmap(R.id.focus_sky, skyArt)
                 setImageViewBitmap(R.id.focus_ring, ring(context, look, minute, (60 * density).toInt(), density))
                 setTextViewText(R.id.focus_eyebrow, look.eyebrow)
                 setImageViewBitmap(R.id.focus_title, title(context, look, (30 * density).toInt()))
                 setContentDescription(R.id.focus_title, look.title)
-                setTextViewText(R.id.focus_status, look.status)
+                setTextViewText(R.id.focus_status, status)
                 setTextColor(R.id.focus_eyebrow, look.soft)
                 setTextColor(R.id.focus_status, look.soft)
                 // A tap does the good thing: the Bible in the Bible hour, the entry while it's due.
@@ -200,6 +211,15 @@ class FocusWidget : AppWidgetProvider() {
                 }
             }
             return bmp
+        }
+
+        /** The sky at `colour` saturation: 1 leaves it as it is, 0 is grey. */
+        private fun desaturate(bmp: Bitmap, colour: Float): Bitmap {
+            if (colour >= 1f) return bmp
+            val out = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+            val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(colour.coerceIn(0f, 1f)) }) }
+            Canvas(out).drawBitmap(bmp, 0f, 0f, paint)
+            return out
         }
 
         /** The title in Fraunces, drawn exactly as tall as its slot so the launcher never has to scale it up. */
