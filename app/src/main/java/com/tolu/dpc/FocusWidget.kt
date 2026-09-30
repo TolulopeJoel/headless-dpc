@@ -115,6 +115,7 @@ class FocusWidget : AppWidgetProvider() {
             val label = when {
                 look == Look.TIDE -> "${tideLeft}m"
                 look.start == null -> "✎"
+                left >= 60 && left % 60 == 0 -> "${left / 60}h"
                 left >= 60 -> "${left / 60}h ${left % 60}m"
                 else -> "${left}m"
             }
@@ -122,7 +123,8 @@ class FocusWidget : AppWidgetProvider() {
 
             return RemoteViews(context.packageName, R.layout.widget_focus).apply {
                 setImageViewBitmap(R.id.focus_sky, desaturate(sky(look, minute, side, side), colour))
-                setImageViewBitmap(R.id.focus_ring, ring(context, look, progress, label, (64 * density).toInt(), density))
+                // Drifted into grey: the whole tile goes grey, ring and all.
+                setImageViewBitmap(R.id.focus_ring, desaturate(ring(context, look, progress, label, (64 * density).toInt(), density), colour))
                 setContentDescription(R.id.focus_root, "Focus: $label")
                 setOnClickPendingIntent(R.id.focus_root, tap(context, look))
             }
@@ -191,7 +193,8 @@ class FocusWidget : AppWidgetProvider() {
                 textAlign = Paint.Align.CENTER
                 textSize = 15 * d
             }
-            val room = box.width() - 12 * d
+            // Well inside the ring, clear of the tip wherever it is.
+            val room = box.width() * 0.6f
             val wide = text.measureText(label)
             if (wide > room) text.textSize *= room / wide
             c.drawText(label, size / 2f, size / 2f + text.textSize * 0.35f, text)
