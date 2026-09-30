@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -20,8 +21,10 @@ import java.util.Calendar
  * screen turns grey. At 15, the tide goes out for the app in front alone: it locks for 15 minutes the first time that
  * day, then 15 more each time (15, 30, 45, 60…), and comes back by itself; the counts reset at 07:00. After a tide the
  * session drops to 10, not 0, so moving on to the next drift app gives only 5 more minutes before it goes too. Time
- * away runs the session down four times as fast as it built up, and opening something done on purpose (the Bible,
- * Àṣàrò, the ministry, calls, work) clears it at once. Day and evening only; the night lock has its own screen.
+ * away runs the session down four times as fast as it built up, and time in something done on purpose (the Bible,
+ * Àṣàrò, the ministry, calls, work) eight times as fast, so it takes real time there, not a tap, to clear it. Any app
+ * that can open web pages counts as drift, and so does the Google app. Day and evening only; the night lock has its
+ * own screen.
  *
  * Driven by BlockScreenService (which app is in front, screen on or off, a tick every 30 seconds). Greyscale is a
  * display setting that needs WRITE_SECURE_SETTINGS, granted once over adb.
@@ -30,15 +33,37 @@ internal object ColourKeeper {
 
     private const val TAG = "dpc.Colour"
 
-    /** Drift apps, by the name the screens use for them. Each has its own tides; the session is shared. */
-    val DRIFT = linkedMapOf(
+    /** Known drift apps, by the name the screens use for them; any browser joins them (see driftApps). */
+    private val KNOWN_DRIFT = linkedMapOf(
         "com.android.chrome" to "Chrome",
         "com.whatsapp.w4b" to "WhatsApp",
         "com.whatsapp" to "WhatsApp",
         "com.instagram.android" to "Instagram",
         "com.google.android.youtube" to "YouTube",
         "com.twitter.android" to "X",
+        "com.google.android.googlequicksearchbox" to "Google",
     )
+
+    @Volatile private var browsers: Set<String> = emptySet()
+    @Volatile private var browsersAt = 0L
+
+    /** Every drift app on the phone: the known ones, and any app that opens ordinary web links (a new browser too). */
+    fun driftApps(context: Context): Set<String> {
+        val now = SystemClock.elapsedRealtime()
+        if (now - browsersAt > 10 * 60_000L || browsersAt == 0L) {
+            browsersAt = now
+            browsers = runCatching {
+                val web = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://example.com")).addCategory(Intent.CATEGORY_BROWSABLE)
+                context.packageManager.queryIntentActivities(web, android.content.pm.PackageManager.MATCH_ALL).map { it.activityInfo.packageName }.toSet()
+            }.getOrDefault(emptySet())
+        }
+        return KNOWN_DRIFT.keys + browsers
+    }
+
+    /** The name the screens use for a drift app. */
+    fun label(context: Context, pkg: String): String = KNOWN_DRIFT[pkg] ?: runCatching {
+        context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault("That app")
 
     /**
      * Soft tides: these aren't suspended, because a suspended app can't ring, and a WhatsApp call must always come
@@ -62,6 +87,7 @@ internal object ColourKeeper {
     private const val AFTER_TIDE = 10f       // where the session sits after a tide: still grey, 5 minutes from the next
     private const val TIDE_STEP = 15         // each tide that day is 15 minutes longer: 15, 30, 45, 60…
     private const val REST_SPEED = 4f        // a minute away undoes four minutes of a session
+    private const val PURPOSE_SPEED = 8f     // a minute in something done on purpose undoes eight
 
     private const val PREFS = "focus"
     private const val KEY_DAY = "tides_day"
@@ -70,6 +96,7 @@ internal object ColourKeeper {
     /** Minutes of drift, net of rest, shared by all the drift apps. */
     @Volatile private var drift = 0f
     @Volatile private var front: String? = null
+    @Volatile private var frontDrift = false
     @Volatile private var screenOn = true
     @Volatile private var lastTick = SystemClock.elapsedRealtime()
     @Volatile private var lastGrey: Boolean? = null
@@ -88,14 +115,14 @@ internal object ColourKeeper {
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** 1 is full colour, 0 is grey: grey the moment the session passes 5 minutes, while a drift app is in front. */
-    fun colour(): Float = if (screenOn && !calling && front in DRIFT && drift > GREY_AFTER) 0f else 1f
+    fun colour(): Float = if (screenOn && !calling && frontDrift && drift > GREY_AFTER) 0f else 1f
 
     // ── Tides ────────────────────────────────────────────────────────────────
 
     /** The drift apps whose tide is out right now. */
     fun tidedApps(context: Context): Set<String> {
         val now = System.currentTimeMillis()
-        return DRIFT.keys.filter { now < prefs(context).getLong("tide_until_$it", 0L) }.toSet()
+        return driftApps(context).filter { now < prefs(context).getLong("tide_until_$it", 0L) }.toSet()
     }
 
     fun tideOut(context: Context) = tidedApps(context).isNotEmpty()
@@ -112,7 +139,7 @@ internal object ColourKeeper {
 
     /** "Chrome", "Chrome and WhatsApp", …: the apps out with the tide, by name. */
     fun tidedNames(context: Context): String {
-        val names = tidedApps(context).mapNotNull { DRIFT[it] }.distinct()
+        val names = tidedApps(context).map { label(context, it) }.distinct()
         return when (names.size) {
             0 -> "Your drift apps"
             1 -> names[0]
@@ -131,7 +158,7 @@ internal object ColourKeeper {
         val edit = p.edit()
         if (p.getInt(KEY_DAY, 0) != today) {
             // A new day: every app's count starts again.
-            DRIFT.keys.forEach { edit.remove("tides_$it") }
+            p.all.keys.filter { it.startsWith("tides_") && it != KEY_DAY }.forEach { edit.remove(it) }
             edit.putInt(KEY_DAY, today)
         }
         val n = (if (p.getInt(KEY_DAY, 0) == today) p.getInt("tides_$pkg", 0) else 0) + 1
@@ -147,11 +174,13 @@ internal object ColourKeeper {
             Intent(context, ScheduleReceiver::class.java).setAction(ACTION_TIDE_END), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         runCatching { am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, until + 1_000L, pi) }
 
-        val name = DRIFT[pkg] ?: "That app"
+        val name = label(context, pkg)
         tell(context, if (n == 1) "Fifteen minutes straight on $name. Tide is out o. It's back in $minutes minutes."
             else "$name again? Tide is out, $minutes minutes this time. Me, I'm not going anywhere.")
         Log.d(TAG, "tide $n for $pkg: $minutes min")
         ScheduleReceiver.enforce(context)
+        // A soft tide isn't a suspension, so if its app is open right now, send it away now rather than at the next screen.
+        if (pkg in SOFT && front == pkg) BlockScreenService.turnAway()
     }
 
     // ── Inputs ───────────────────────────────────────────────────────────────
@@ -161,7 +190,7 @@ internal object ColourKeeper {
         if (pkg == null || pkg in OVERLAYS || pkg.contains("inputmethod") || pkg.contains("keyboard")) return
         advance(context)
         front = pkg
-        if (pkg in PURPOSE) drift = 0f
+        frontDrift = pkg in driftApps(context)
         apply(context)
     }
 
@@ -176,11 +205,12 @@ internal object ColourKeeper {
         apply(context)
     }
 
-    /** For adb testing: pretend this many minutes of drift, with Chrome (or `pkg`) in front. */
+    /** For adb testing: pretend this many minutes of drift, with Chrome (or `pkg`) in front. It only ever adds: a test can't be used to wipe a real session. */
     fun pretend(context: Context, minutes: Float, pkg: String = "com.android.chrome") {
         front = pkg
+        frontDrift = pkg in driftApps(context)
         screenOn = true
-        drift = minutes.coerceAtLeast(0f)
+        drift = maxOf(drift, minutes)
         holdUntil = if (minutes > 0f) SystemClock.elapsedRealtime() + 20_000 else 0L
         lastTick = SystemClock.elapsedRealtime()
         apply(context)
@@ -202,14 +232,26 @@ internal object ColourKeeper {
         if (holding()) { lastTick = now; return }
         val minutes = (now - lastTick) / 60_000f
         lastTick = now
+        // Ask whether the screen is on rather than trusting the broadcasts, which Hiber may hold while frozen.
+        screenOn = context.getSystemService(PowerManager::class.java)?.isInteractive ?: screenOn
+        // A gap of more than 2 minutes means the DPC was frozen or asleep: count it as rest, never as drift.
+        if (minutes > 2f) {
+            drift = (drift - minutes * REST_SPEED).coerceAtLeast(0f)
+            return
+        }
         if (!activeNow(context)) {
             drift = 0f
             return
         }
         // A call pauses the session: it neither counts up nor runs down, and no tide starts mid-call.
         if (inCall(context)) return
-        val using = front.takeIf { screenOn && it in DRIFT && it !in tidedApps(context) }
-        drift = if (using != null) drift + minutes else (drift - minutes * REST_SPEED).coerceAtLeast(0f)
+        val using = front.takeIf { screenOn && frontDrift && it !in tidedApps(context) }
+        val purpose = screenOn && front in PURPOSE
+        drift = when {
+            using != null -> drift + minutes
+            purpose -> (drift - minutes * PURPOSE_SPEED).coerceAtLeast(0f)
+            else -> (drift - minutes * REST_SPEED).coerceAtLeast(0f)
+        }
         if (using != null && drift >= TIDE_AFTER) startTide(context, using)
     }
 

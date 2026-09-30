@@ -40,7 +40,6 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="com.tolu.dpc.ACTION_ENTRY_SAVED" />
-                <action android:name="com.tolu.dpc.ACTION_GRACE" />
                 <action android:name="com.tolu.dpc.ACTION_PREVIEW" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_COLOUR" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_TIDE" />

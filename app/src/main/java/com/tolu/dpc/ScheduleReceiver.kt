@@ -30,7 +30,6 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             ACTION_ENTRY_SAVED -> recordEntry(context)
-            ACTION_GRACE -> recordGrace(context, intent.getLongExtra(EXTRA_UNTIL, 0L))
             ACTION_TEST_GATE -> startGateTest()
             ACTION_TEST_NIGHT -> startTest(Phase.NIGHT)
             ACTION_TEST_MORNING -> startTest(Phase.MORNING)
@@ -71,13 +70,10 @@ class ScheduleReceiver : BroadcastReceiver() {
             .map { "com.tolu.dpc.ACTION_$it" }
 
         /**
-         * One-off grace from adb: USB debugging and the hotspot stay on until `until` (epoch ms, at most 6 hours ahead).
-         * Apps still lock on time; only the two night device rules wait. It can only be sent while debugging is still on.
+         * The one grace there was (30 Sep 2026, until midnight): USB debugging and the hotspot stayed on while apps locked.
+         * The command that set it is gone, so no new grace can be given from a laptop; this only reads the old one out.
          */
-        const val ACTION_GRACE = "com.tolu.dpc.ACTION_GRACE"
-        const val EXTRA_UNTIL = "until"
         private const val KEY_GRACE_UNTIL = "grace_until_millis"
-        private const val GRACE_MAX_MS = 6 * 60 * 60 * 1000L
 
         /** Sent by Àṣàrò each time a new entry is saved. */
         const val ACTION_ENTRY_SAVED = "com.tolu.dpc.ACTION_ENTRY_SAVED"
@@ -190,12 +186,6 @@ class ScheduleReceiver : BroadcastReceiver() {
             Log.d(TAG, "entry saved")
         }
 
-        private fun recordGrace(context: Context, until: Long) {
-            val capped = until.coerceAtMost(System.currentTimeMillis() + GRACE_MAX_MS)
-            prefs(context).edit().putLong(KEY_GRACE_UNTIL, capped).apply()
-            Log.d(TAG, "grace until $capped")
-        }
-
         private fun inGrace(context: Context) = System.currentTimeMillis() < prefs(context).getLong(KEY_GRACE_UNTIL, 0L)
 
         private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -225,7 +215,12 @@ class ScheduleReceiver : BroadcastReceiver() {
         // ── Public entry points ───────────────────────────────────────────────────
 
         /** Idempotent: put the phone in the current phase and re-arm every alarm. Safe to call as often as you like. */
+        /** When enforce last ran (elapsed ms): after a Hiber freeze, the first touch uses this to catch up at once. */
+        @Volatile var lastEnforceAt = 0L
+
         fun enforce(context: Context) {
+            lastEnforceAt = SystemClock.elapsedRealtime()
+            runLogged("keepAccessibility") { keepAccessibility(context) }
             runLogged("applyPhase") { applyPhase(context, currentState(context)) }
             runLogged("scheduleAlarms") { scheduleAlarms(context) }
             runLogged("refreshWidget") { FocusWidget.refresh(context) }
@@ -342,6 +337,22 @@ class ScheduleReceiver : BroadcastReceiver() {
             state.phase == Phase.NIGHT -> "It's night. Rest, Tolu. JW Library and jw.org open at 5AM."
             state.phase == Phase.EVENING -> "Work's done for today. Slack opens again at 7AM."
             else -> "Locked by your focus schedule."
+        }
+
+        /**
+         * Android won't let a device owner lock Settings, so the accessibility service (the blocked screen, the tides, the
+         * grey) could be switched off there. It's switched straight back on here, every few minutes and on screen-on.
+         */
+        private fun keepAccessibility(context: Context) {
+            val cr = context.contentResolver
+            val me = ComponentName(context, BlockScreenService::class.java).flattenToString()
+            val on = android.provider.Settings.Secure.getString(cr, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+            if (on.split(':').none { it.equals(me, ignoreCase = true) }) {
+                val list = if (on.isBlank()) me else "$on:$me"
+                android.provider.Settings.Secure.putString(cr, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, list)
+                android.provider.Settings.Secure.putInt(cr, android.provider.Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+                Log.d(TAG, "accessibility service switched back on")
+            }
         }
 
         /** Network time and time zone, turned on and locked, day and night. */

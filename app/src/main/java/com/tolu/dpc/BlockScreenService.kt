@@ -36,6 +36,11 @@ class BlockScreenService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        // HiOS's Hiber freezes the DPC while the screen is off, drops its alarms and holds its broadcasts. Accessibility
+        // events aren't held, so the first one after a freeze puts the phone right at once (phase, alarms, tides).
+        if (android.os.SystemClock.elapsedRealtime() - ScheduleReceiver.lastEnforceAt > 60_000) {
+            runCatching { ScheduleReceiver.enforce(this) }
+        }
         if (event.className?.toString() != ADMIN_DIALOG) {
             val pkg = event.packageName?.toString()
             // A soft tide (WhatsApp): turn it away at the door, unless it's a call, which always comes through.
@@ -79,6 +84,16 @@ class BlockScreenService : AccessibilityService() {
         private const val ADMIN_DIALOG = "com.android.settings.enterprise.ActionDisabledByAdminDialog"
 
         @Volatile private var running: BlockScreenService? = null
+
+        /** Sends the phone home and shows the tide screen: for a soft tide that starts while its app is open. */
+        fun turnAway(): Boolean {
+            val service = running ?: return false
+            service.performGlobalAction(GLOBAL_ACTION_HOME)
+            service.handler.postDelayed({
+                service.startActivity(Intent(service, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+            }, 150)
+            return true
+        }
 
         /** Locks the screen the way the power button does, for "Goodnight". False if the service isn't running. */
         fun lockScreen(): Boolean = running?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) ?: false
