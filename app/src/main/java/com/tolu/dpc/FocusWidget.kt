@@ -2,25 +2,31 @@ package com.tolu.dpc
 
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
 import android.widget.RemoteViews
 
 /**
  * Home-screen widget. Hiber never freezes an app with a placed widget, so placing this one
- * protects the alarms. Each widget update also re-enforces the focus window.
+ * protects the alarms. Each widget update also re-enforces the schedule.
  */
 class FocusWidget : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, widgetIds: IntArray) {
-        ScheduleReceiver.enforce(context)
+        ScheduleReceiver.enforce(context)   // also refreshes the text below
         KeepAliveService.start(context)
+    }
 
-        val status = if (ScheduleReceiver.isInRestrictionWindow()) "Locked until 7AM" else "Locks at 12AM"
-        widgetIds.forEach { id ->
+    companion object {
+        /** Show the current phase on every placed widget. */
+        fun refresh(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, FocusWidget::class.java))
+            if (ids.isEmpty()) return
             val views = RemoteViews(context.packageName, R.layout.widget_focus).apply {
-                setTextViewText(R.id.focus_status, status)
+                setTextViewText(R.id.focus_status, ScheduleReceiver.statusText(context))
             }
-            manager.updateAppWidget(id, views)
+            ids.forEach { manager.updateAppWidget(it, views) }
         }
     }
 }

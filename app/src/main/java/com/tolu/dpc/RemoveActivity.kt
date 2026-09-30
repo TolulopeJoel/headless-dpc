@@ -22,7 +22,7 @@ class RemoveActivity : Activity() {
             // Stop the keep-alive too, or it re-arms alarms and re-applies the window every 5 minutes.
             KeepAliveService.stop(this)
 
-            // Unsuspend all apps
+            // Unsuspend all apps, clear Chrome's site rules and the night device rules
             ScheduleReceiver.unrestrict(this)
 
             // Remove user restrictions

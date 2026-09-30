@@ -71,8 +71,7 @@ class SetupActivity : Activity() {
         dpm.addUserRestriction(admin, UserManager.DISALLOW_CONFIG_PRIVATE_DNS)
 
         // ── Scheduling ───────────────────────────────────────────────────────────
-        ScheduleReceiver.applyCurrentState(this)
-        ScheduleReceiver.scheduleAlarms(this)
+        ScheduleReceiver.enforce(this)
 
         // ── Keep-alive: stops HiOS freezing the app and dropping its alarms ───────
         KeepAliveService.start(this)
@@ -84,7 +83,7 @@ class SetupActivity : Activity() {
             PackageManager.DONT_KILL_APP
         )
 
-        toast("Done. DNS locked to $dotHost. Focus window active: 12AM–7AM.")
+        toast("Done. DNS locked to $dotHost. Focus schedule on: Slack 5:30PM, all 9PM, jw.org 5AM, open 7AM.")
         finish()
     }
 

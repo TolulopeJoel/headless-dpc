@@ -17,7 +17,7 @@ import android.util.Log
 
 /**
  * Keeps the process alive so HiOS's Hiber freezer doesn't freeze it and drop its alarms,
- * and re-enforces the focus window on a timer and on every screen-on/unlock.
+ * and re-enforces the focus schedule on a timer and on every screen-on/unlock.
  */
 class KeepAliveService : Service() {
 
@@ -69,10 +69,10 @@ class KeepAliveService : Service() {
     private fun startInForeground() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Focus window", NotificationManager.IMPORTANCE_MIN)
+            NotificationChannel(CHANNEL_ID, "Focus schedule", NotificationManager.IMPORTANCE_MIN)
         )
         val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Focus window 12AM–7AM")
+            .setContentTitle("Focus schedule")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setOngoing(true)
             .build()

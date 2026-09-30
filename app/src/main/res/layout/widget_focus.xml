@@ -10,7 +10,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Focus 12AM–7AM"
+        android:text="Focus"
         android:textColor="#FFFFFF"
         android:textSize="14sp"
         android:textStyle="bold" />
@@ -19,7 +19,7 @@
         android:id="@+id/focus_status"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Locks at 12AM"
+        android:text="Open · Slack locks 5:30PM"
         android:textColor="#DDFFFFFF"
         android:textSize="12sp" />
 </LinearLayout>

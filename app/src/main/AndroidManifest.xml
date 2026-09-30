@@ -35,8 +35,11 @@
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="com.tolu.dpc.ACTION_RESTRICT" />
-                <action android:name="com.tolu.dpc.ACTION_UNRESTRICT" />
+                <action android:name="com.tolu.dpc.ACTION_ENTRY_SAVED" />
+                <action android:name="com.tolu.dpc.ACTION_TEST_NIGHT" />
+                <action android:name="com.tolu.dpc.ACTION_TEST_MORNING" />
+                <action android:name="com.tolu.dpc.ACTION_TEST_END" />
+                <action android:name="com.tolu.dpc.ACTION_TEST_GATE" />
             </intent-filter>
         </receiver>
 
@@ -47,7 +50,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Device-owner focus window: suspends apps 12AM-7AM" />
+                android:value="Device-owner focus schedule: suspends apps in the evening and at night" />
         </service>
 
         <!-- Home-screen widget: a placed widget exempts the app from HiOS freezing -->
@@ -70,6 +73,27 @@
         <activity
             android:name=".RemoveActivity"
             android:exported="true" />
+
+        <!-- Replaces Android's "Blocked by work policy" dialog with BlockedActivity (enabled once over adb) -->
+        <service
+            android:name=".BlockScreenService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/block_screen_service" />
+        </service>
+
+        <activity
+            android:name=".BlockedActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
 
     </application>
 </manifest>
