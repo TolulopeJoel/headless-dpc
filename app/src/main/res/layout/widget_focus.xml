@@ -33,17 +33,6 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/focus_eyebrow"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="@font/work_sans_semibold"
-                android:letterSpacing="0.22"
-                android:maxLines="1"
-                android:text="FOCUS"
-                android:textColor="#B3FFFFFF"
-                android:textSize="9.5sp" />
-
             <!-- Drawn in Fraunces by FocusWidget: launchers don't load an app's fonts into widgets. -->
             <ImageView
                 android:id="@+id/focus_title"

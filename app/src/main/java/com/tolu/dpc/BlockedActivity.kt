@@ -78,85 +78,92 @@ class BlockedActivity : Activity() {
         column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(28), dp(24), dp(28), dp(24))
+            setPadding(dp(32), 0, dp(32), dp(40))
         }
 
-        val eyebrow = text(mood.eyebrow, 12f, mood.soft, strong).apply { letterSpacing = 0.32f }
-        ring = RingView(this, mood, display, strong) { minute() }
-        val title = text("Not now, Tolu.", 40f, mood.ink, display).apply { setPadding(0, dp(22), 0, 0) }
-        // At low tide, say which app is out and that the rest are open.
-        val names = ColourKeeper.tidedNames(this)
-        val many = names.contains(" and ")
-        val why = if (mood == Mood.TIDE && !previewing) "$names ${if (many) "are" else "is"} out with the tide. ${if (many) "They come" else "It comes"} back by ${if (many) "themselves" else "itself"}; everything else is open."
-            else ScheduleReceiver.blockedMessage(state)
-        val message = text(why, 17f, mood.soft, body).apply {
-            setPadding(0, dp(10), 0, 0)
-            setLineSpacing(0f, 1.25f)
-        }
-        val verse = text("“${mood.verse}”", 15f, mood.soft, body).apply {
-            setPadding(dp(8), dp(26), dp(8), 0)
-            setLineSpacing(0f, 1.3f)
-        }
-        val reference = text(mood.reference.uppercase(), 11f, if (mood == Mood.EVENING) 0xFFFFD9A8.toInt() else mood.accent, strong).apply {
-            letterSpacing = 0.24f
-            setPadding(0, dp(8), 0, 0)
-        }
+        // One of each: the ring says when, the title says no, Àṣàrò says why, one button says what instead.
+        ring = RingView(this, mood, display, strong, ringLabel(previewing)) { minute() }
+        val title = text("Not now, Tolu.", 36f, mood.ink, display).apply { setPadding(0, dp(30), 0, 0) }
 
-        // What to do instead: the good thing first, filled; a second choice outlined; home always there, quietly.
-        val primary = pill(mood.primary.label, filled = true, strong) { run(mood.primary) }
-        val secondary = mood.secondary?.let { action -> pill(action.label, filled = false, strong) { run(action) } }
-        val home = if (mood.primary != Action.HOME) text("Go home", 14f, mood.soft, strong).apply {
-            setPadding(dp(16), dp(14), dp(16), dp(6))
-            setOnClickListener { run(Action.HOME) }
-        } else null
-
+        // Àṣàrò's line is the message: his face beside it, no box.
         val asaro = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(10), dp(20), dp(10))
-            background = GradientDrawable().apply { cornerRadius = dp(28).toFloat(); setColor(mood.pill) }
+            setPadding(dp(6), dp(6), dp(6), dp(6))
         }
         val face = ImageView(this).apply {
             runCatching { setImageDrawable(packageManager.getApplicationIcon(ASARO)) }
         }
-        asaro.addView(face, LinearLayout.LayoutParams(dp(42), dp(42)))
-        val said = text(asaroLine(tries), 13.5f, if (mood.lightBackground) mood.ink else 0xFFF6EFE3.toInt(), strong).apply {
+        asaro.addView(face, LinearLayout.LayoutParams(dp(30), dp(30)))
+        val said = text(asaroLine(tries), 15f, mood.soft, body).apply {
             gravity = Gravity.START
-            setPadding(dp(12), 0, 0, 0)
-            setLineSpacing(0f, 1.2f)
+            setPadding(dp(10), 0, 0, 0)
+            setLineSpacing(0f, 1.25f)
+            maxWidth = dp(260)
         }
-        asaro.addView(said, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        asaro.addView(said, wrap())
         // Poke him and he answers, with a little jump.
         var pokes = 0
         asaro.setOnClickListener {
             val answers = listOf("Ehen? I'm here.", "Don't poke me o. Go and rest.", "Oya. Phone down.", "I'm still here o.")
             said.text = answers[pokes++ % answers.size]
-            face.animate().translationY(-dp(10).toFloat()).setDuration(120).withEndAction {
+            face.animate().translationY(-dp(8).toFloat()).setDuration(120).withEndAction {
                 face.animate().translationY(0f).setDuration(260).setInterpolator(DecelerateInterpolator()).start()
             }.start()
             asaro.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         }
-        pressable(asaro)
 
-        column.addView(eyebrow)
-        column.addView(ring, LinearLayout.LayoutParams(dp(224), dp(224)).apply { topMargin = dp(22) })
-        listOf(title, message, verse, reference).forEach { column.addView(it) }
-        column.addView(primary, wrap().apply { topMargin = dp(30) })
-        secondary?.let { column.addView(it, wrap().apply { topMargin = dp(12) }) }
-        home?.let { column.addView(it, wrap()) }
-        column.addView(asaro, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(22) })
+        // One button for the good thing; everything else is a quiet link.
+        val primary = pill(mood.primary.label, filled = true, strong) { run(mood.primary) }
+        val links = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        listOfNotNull(mood.secondary, Action.HOME.takeIf { mood.primary != Action.HOME }).forEachIndexed { i, action ->
+            if (i > 0) links.addView(text("·", 14f, mood.soft, strong).apply { setPadding(dp(6), 0, dp(6), 0) })
+            links.addView(text(action.label, 14f, mood.soft, strong).apply {
+                setPadding(dp(10), dp(12), dp(10), dp(12))
+                setOnClickListener { run(action) }
+            })
+        }
+
+        column.addView(ring, LinearLayout.LayoutParams(dp(200), dp(200)))
+        column.addView(title)
+        column.addView(asaro, wrap().apply { topMargin = dp(14) })
+        column.addView(primary, wrap().apply { topMargin = dp(36) })
+        if (links.childCount > 0) column.addView(links, wrap().apply { topMargin = dp(6) })
+
+        // The verse, small, at the foot of the screen, its reference in the same line.
+        val verse = TextView(this).apply {
+            val words = "“${mood.verse}”"
+            val ref = "  ${mood.reference}"
+            text = android.text.SpannableStringBuilder(words + ref).apply {
+                // Where the sun sits behind the verse (dawn and dusk), the reference is white, not a warm colour lost in the glow.
+                val refColour = if (mood == Mood.MORNING || mood == Mood.EVENING) 0xFFFFFFFF.toInt() else mood.accent
+                setSpan(android.text.style.ForegroundColorSpan(refColour), words.length, length, 0)
+            }
+            // A soft shadow keeps it readable over the sun, without a box.
+            if (!mood.lightBackground) setShadowLayer(dp(6).toFloat(), 0f, dp(1).toFloat(), 0x80000000.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            setTextColor(mood.soft)
+            typeface = body
+            gravity = Gravity.CENTER
+            setLineSpacing(0f, 1.3f)
+            setPadding(dp(40), 0, dp(40), dp(36))
+        }
 
         root = FrameLayout(this)
         root.addView(SkyView(this, mood) { minute() })
         root.addView(column, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        root.addView(verse, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
         setContentView(root)
 
         // Everything eases up into place, one after another, with a soft tap to say "I stopped you".
-        val order = listOfNotNull(eyebrow, ring, title, message, verse, reference, primary, secondary, home, asaro)
+        val order = listOfNotNull(ring, title, asaro, primary, links.takeIf { it.childCount > 0 }, verse)
         order.forEachIndexed { i, v ->
             v.alpha = 0f
-            v.translationY = dp(18).toFloat()
-            v.animate().alpha(1f).translationY(0f).setStartDelay(80L * i).setDuration(600).setInterpolator(DecelerateInterpolator(2f)).start()
+            v.translationY = dp(16).toFloat()
+            v.animate().alpha(1f).translationY(0f).setStartDelay(90L * i).setDuration(620).setInterpolator(DecelerateInterpolator(2f)).start()
         }
         root.post { root.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }
 
@@ -185,6 +192,13 @@ class BlockedActivity : Activity() {
     private fun tick() {
         ring.refresh()
         handler.postDelayed({ tick() }, 20_000)
+    }
+
+    /** What the ring says under its countdown. At low tide it names the app that's out. */
+    private fun ringLabel(previewing: Boolean): String {
+        if (mood != Mood.TIDE) return mood.until
+        val names = if (previewing) "Chrome" else ColourKeeper.tidedNames(this)
+        return if (names.contains(" and ")) "until they're back" else "until $names is back"
     }
 
     /** Minutes after midnight: the real clock, or the pretend one during an adb test. */
@@ -219,7 +233,8 @@ class BlockedActivity : Activity() {
     private fun goodnight() {
         val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
         column.isEnabled = false
-        column.animate().alpha(0f).setDuration(380).start()
+        // Everything but the sky fades.
+        for (i in 1 until root.childCount) root.getChildAt(i).animate().alpha(0f).setDuration(380).start()
         val words = text("Goodnight, Tolu.", 34f, mood.ink, displayFace).apply {
             alpha = 0f
             translationY = dp(14).toFloat()
@@ -644,17 +659,18 @@ private class SkyView(context: Context, private val mood: Mood, private val minu
 
 /** The ring: fills with the share of the lock that has passed, with hour ticks, a glowing tip, and the countdown. */
 private class RingView(
-    context: Context, private val mood: Mood, display: Typeface, strong: Typeface, private val minute: () -> Int,
+    context: Context, private val mood: Mood, display: Typeface, strong: Typeface, private val label: String, private val minute: () -> Int,
 ) : View(context) {
     private val d = resources.displayMetrics.density
-    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 10 * d; color = mood.track }
-    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 10 * d; strokeCap = Paint.Cap.ROUND; color = mood.accent }
-    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 24 * d; strokeCap = Paint.Cap.ROUND; color = mood.accent }
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 7 * d; color = mood.track }
+    private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 7 * d; strokeCap = Paint.Cap.ROUND; color = mood.accent }
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 18 * d; strokeCap = Paint.Cap.ROUND; color = mood.accent }
     private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2 * d; strokeCap = Paint.Cap.ROUND; color = mood.soft }
     private val tip = Paint(Paint.ANTI_ALIAS_FLAG)
     private val baseSize = 44 * d * resources.configuration.fontScale
     private val big = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = display; textSize = baseSize; color = mood.ink; textAlign = Paint.Align.CENTER }
-    private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = strong; textSize = 12.5f * d * resources.configuration.fontScale; color = mood.soft; textAlign = Paint.Align.CENTER; letterSpacing = 0.14f }
+    private val smallSize = 11.5f * d * resources.configuration.fontScale
+    private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = strong; textSize = smallSize; color = mood.soft; textAlign = Paint.Align.CENTER; letterSpacing = 0.14f }
     private val box = RectF()
 
     private var shown = 0f      // animated share of the ring
@@ -692,7 +708,7 @@ private class RingView(
             left >= 60 -> "${left / 60}h ${left % 60}m"
             else -> "${left}m"
         }
-        contentDescription = if (mood == Mood.ENTRY) "Locked until today's entry" else "$centre ${mood.until}"
+        contentDescription = if (mood == Mood.ENTRY) "Locked until today's entry" else "$centre $label"
         if (shown > 0f) shown = target
         invalidate()
     }
@@ -725,22 +741,6 @@ private class RingView(
         val r = box.width() / 2f
         canvas.drawOval(box, track)
 
-        // One tick per hour of the lock, just inside the ring.
-        val s = mood.start
-        val e = mood.end
-        if (s != null && e != null) {
-            val hours = ((e - s + 1440) % 1440) / 60f
-            tick.alpha = 110
-            var k = 1
-            while (k < hours) {
-                val a = (-90 + 360f * k / hours) * (PI.toFloat() / 180f)
-                val r1 = r + 3.5f * d
-                val r2 = r - 3.5f * d
-                canvas.drawLine(cx + r1 * cos(a), cy + r1 * sin(a), cx + r2 * cos(a), cy + r2 * sin(a), tick)
-                k++
-            }
-        }
-
         val sweep = 360f * shown.coerceIn(0f, 1f)
         if (sweep > 16f) {   // a sliver of arc reads as a toggle switch; the glowing tip alone says "just started"
             glow.alpha = (16 + 28 * breath).toInt()
@@ -766,6 +766,10 @@ private class RingView(
         val wide = big.measureText(centre)
         if (wide > room) big.textSize = baseSize * room / wide
         canvas.drawText(centre, cx, cy + big.textSize * 0.2f, big)
-        canvas.drawText(mood.until.uppercase(), cx, cy + big.textSize * 0.2f + 26 * d, small)
+        // The label shrinks too if a long app name would reach the ring.
+        small.textSize = smallSize
+        val labelWide = small.measureText(label.uppercase())
+        if (labelWide > room) small.textSize = smallSize * room / labelWide
+        canvas.drawText(label.uppercase(), cx, cy + big.textSize * 0.2f + 26 * d, small)
     }
 }

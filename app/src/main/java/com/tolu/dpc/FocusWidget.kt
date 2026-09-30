@@ -130,11 +130,9 @@ class FocusWidget : AppWidgetProvider() {
             return RemoteViews(context.packageName, R.layout.widget_focus).apply {
                 setImageViewBitmap(R.id.focus_sky, skyArt)
                 setImageViewBitmap(R.id.focus_ring, ring(context, look, progress, label, (60 * density).toInt(), density))
-                setTextViewText(R.id.focus_eyebrow, look.eyebrow)
                 setImageViewBitmap(R.id.focus_title, title(context, look, (30 * density).toInt()))
                 setContentDescription(R.id.focus_title, look.title)
                 setTextViewText(R.id.focus_status, status)
-                setTextColor(R.id.focus_eyebrow, look.soft)
                 setTextColor(R.id.focus_status, look.soft)
                 // A tap does the good thing: the Bible in the Bible hour, the entry while it's due.
                 setOnClickPendingIntent(R.id.focus_root, tap(context, look))
