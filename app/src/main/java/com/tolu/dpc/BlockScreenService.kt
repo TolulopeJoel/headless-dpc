@@ -18,8 +18,36 @@ class BlockScreenService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    // The always-open tools (Recorder, Notepad, Calculator) get 4 minutes at a time, then rest for 5.
+    private var toolFront: String? = null
+    private var toolSince = 0L
+
+    private fun toolPrefs() = getSharedPreferences("focus", MODE_PRIVATE)
+    private fun toolResting(pkg: String) = System.currentTimeMillis() < toolPrefs().getLong("tool_until_$pkg", 0L)
+
+    private fun toolName(pkg: String) = when (pkg) {
+        "com.transsion.soundrecorder" -> "Recorder"
+        "com.transsion.notebook" -> "Notepad"
+        else -> "Calculator"
+    }
+
+    /** 4 minutes straight in one tool: it closes and rests for 5. A recording keeps going; only the screen closes. */
+    private fun checkTool() {
+        val pkg = toolFront ?: return
+        val interactive = getSystemService(android.os.PowerManager::class.java)?.isInteractive ?: true
+        if (!interactive || android.os.SystemClock.elapsedRealtime() - toolSince < TOOL_LIMIT_MS) return
+        val until = System.currentTimeMillis() + TOOL_REST_MS
+        toolPrefs().edit().putLong("tool_until_$pkg", until).apply()
+        toolFront = null
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        android.widget.Toast.makeText(this, "Four minutes. ${toolName(pkg)} rests until ${clock(until)}.", android.widget.Toast.LENGTH_LONG).show()
+    }
+
+    private fun clock(ms: Long) = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
+
     private val colourTick = object : Runnable {
         override fun run() {
+            checkTool()
             ColourKeeper.tick(this@BlockScreenService)
             handler.postDelayed(this, 30_000)
         }
@@ -43,6 +71,18 @@ class BlockScreenService : AccessibilityService() {
         }
         if (event.className?.toString() != ADMIN_DIALOG) {
             val pkg = event.packageName?.toString()
+            // The tools: turned away while resting; otherwise their 4 minutes start when they come to the front.
+            if (pkg != null && pkg in TOOLS) {
+                if (toolResting(pkg)) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    val until = toolPrefs().getLong("tool_until_$pkg", 0L)
+                    android.widget.Toast.makeText(this, "${toolName(pkg)} is resting until ${clock(until)}.", android.widget.Toast.LENGTH_SHORT).show()
+                    return
+                }
+                if (toolFront != pkg) { toolFront = pkg; toolSince = android.os.SystemClock.elapsedRealtime() }
+            } else if (pkg != null && pkg !in PASSING && !pkg.contains("inputmethod") && !pkg.contains("keyboard")) {
+                toolFront = null   // left the tool (the keyboard and notifications don't count as leaving)
+            }
             // WhatsApp statuses are off: the status player is closed the moment it opens. Chats and calls are untouched.
             if (pkg != null && pkg in WHATSAPP && isStatusPlayer(event)) {
                 performGlobalAction(GLOBAL_ACTION_BACK)
@@ -96,6 +136,11 @@ class BlockScreenService : AccessibilityService() {
     companion object {
         private const val ADMIN_DIALOG = "com.android.settings.enterprise.ActionDisabledByAdminDialog"
         private val WHATSAPP = setOf("com.whatsapp", "com.whatsapp.w4b")
+        private val TOOLS = setOf("com.transsion.soundrecorder", "com.transsion.notebook", "com.transsion.calculator")
+        /** Windows that pass over whatever is open without meaning you left it. */
+        private val PASSING = setOf("com.android.systemui", "com.tolu.dpc", "android")
+        private const val TOOL_LIMIT_MS = 4 * 60_000L
+        private const val TOOL_REST_MS = 5 * 60_000L
 
         @Volatile private var running: BlockScreenService? = null
 
