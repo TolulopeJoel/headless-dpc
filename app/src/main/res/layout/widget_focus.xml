@@ -1,25 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Tolu's focus widget. FocusWidget draws the sky and the ring; the words are live text in Àṣàrò's fonts. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/focus_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="8dp"
-    android:background="#CC17263F">
+    android:background="@drawable/focus_shape"
+    android:clipToOutline="true">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Focus"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:textStyle="bold" />
+    <ImageView
+        android:id="@+id/focus_sky"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop" />
 
-    <TextView
-        android:id="@+id/focus_status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Open · Slack locks 5:30PM"
-        android:textColor="#DDFFFFFF"
-        android:textSize="12sp" />
-</LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="14dp">
+
+        <ImageView
+            android:id="@+id/focus_ring"
+            android:layout_width="60dp"
+            android:layout_height="60dp" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/focus_eyebrow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/work_sans_semibold"
+                android:letterSpacing="0.22"
+                android:maxLines="1"
+                android:text="FOCUS"
+                android:textColor="#B3FFFFFF"
+                android:textSize="9.5sp" />
+
+            <!-- Drawn in Fraunces by FocusWidget: launchers don't load an app's fonts into widgets. -->
+            <ImageView
+                android:id="@+id/focus_title"
+                android:layout_width="match_parent"
+                android:layout_height="30dp"
+                android:layout_marginTop="1dp"
+                android:layout_marginBottom="1dp"
+                android:scaleType="fitStart" />
+
+            <TextView
+                android:id="@+id/focus_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/work_sans"
+                android:lineSpacingMultiplier="1.1"
+                android:maxLines="2"
+                android:text="Slack locks 5:30PM"
+                android:textColor="#D9FFFFFF"
+                android:textSize="11.5sp" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

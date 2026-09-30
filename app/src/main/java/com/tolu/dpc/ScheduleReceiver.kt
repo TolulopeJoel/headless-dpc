@@ -36,6 +36,18 @@ class ScheduleReceiver : BroadcastReceiver() {
             ACTION_TEST_MORNING -> startTest(Phase.MORNING)
             ACTION_TEST_END -> { testUntil = 0L; gateTestUntil = 0L }
         }
+        // Tests can also pretend a time of day (--ei minute 1320 is 22:00), for the blocked screen's sky and countdown only.
+        when (intent.action) {
+            ACTION_TEST_GATE, ACTION_TEST_NIGHT, ACTION_TEST_MORNING -> testMinute = intent.getIntExtra("minute", -1)
+            ACTION_TEST_END -> { testMinute = -1; previewUntil = 0L }   // enforce() below redraws the widget
+            ACTION_PREVIEW -> {
+                previewName = intent.getStringExtra("mood")?.uppercase()
+                previewMinute = intent.getIntExtra("minute", -1)
+                previewUntil = SystemClock.elapsedRealtime() + TEST_MS
+                runCatching { FocusWidget.refresh(context) }
+                return   // look only: nothing is locked or unlocked
+            }
+        }
 
         // Every path applies the current phase and re-arms all alarms.
         // HiOS's Hiber freezer drops the alarms of a frozen app, so nothing may rely on one alarm surviving.
@@ -127,6 +139,23 @@ class ScheduleReceiver : BroadcastReceiver() {
         @Volatile private var testUntil = 0L
         @Volatile private var gateTestSince = 0L
         @Volatile private var gateTestUntil = 0L
+
+        /**
+         * Look-only preview for designing the blocked screen: `--es mood NIGHT|MORNING|EVENING|ENTRY --ei minute 360`.
+         * For 90 seconds the blocked screen shows that mood at that time. It changes nothing that is locked, so it works
+         * at night too.
+         */
+        const val ACTION_PREVIEW = "com.tolu.dpc.ACTION_PREVIEW"
+        @Volatile private var previewName: String? = null
+        @Volatile var previewMinute = -1
+        @Volatile private var previewUntil = 0L
+
+        fun previewMood(): String? = previewName?.takeIf {
+            SystemClock.elapsedRealtime() < previewUntil && it in setOf("DAY", "NIGHT", "MORNING", "EVENING", "ENTRY")
+        }
+
+        /** A pretend minute of the day for the blocked screen during a test, or -1. Never used by the schedule itself. */
+        @Volatile var testMinute = -1
 
         private fun startTest(phase: Phase) {
             testPhase = phase

@@ -26,7 +26,22 @@ class BlockScreenService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        running = this
+    }
+
+    override fun onDestroy() {
+        running = null
+        super.onDestroy()
+    }
+
     companion object {
         private const val ADMIN_DIALOG = "com.android.settings.enterprise.ActionDisabledByAdminDialog"
+
+        @Volatile private var running: BlockScreenService? = null
+
+        /** Locks the screen the way the power button does, for "Goodnight". False if the service isn't running. */
+        fun lockScreen(): Boolean = running?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) ?: false
     }
 }
