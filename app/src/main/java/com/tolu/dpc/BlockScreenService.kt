@@ -43,6 +43,12 @@ class BlockScreenService : AccessibilityService() {
         }
         if (event.className?.toString() != ADMIN_DIALOG) {
             val pkg = event.packageName?.toString()
+            // WhatsApp statuses are off: the status player is closed the moment it opens. Chats and calls are untouched.
+            if (pkg != null && pkg in WHATSAPP && isStatusPlayer(event)) {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                android.widget.Toast.makeText(this, "Statuses are off o. Your chats are open.", android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
             // A soft tide (WhatsApp): turn it away at the door, unless it's a call, which always comes through.
             if (pkg != null && pkg in ColourKeeper.SOFT && pkg in ColourKeeper.tidedApps(this) && !isCall(event) && !ColourKeeper.inCall(this)) {
                 performGlobalAction(GLOBAL_ACTION_HOME)
@@ -60,6 +66,13 @@ class BlockScreenService : AccessibilityService() {
             startActivity(Intent(this, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
         }, 150)
     }
+
+    /**
+     * WhatsApp's player for other people's statuses (com.whatsapp.status.playback.StatusPlaybackActivity, checked in the
+     * installed WhatsApp Business 2.26.37.73). Only the player: posting your own status and replying stay open.
+     */
+    private fun isStatusPlayer(event: AccessibilityEvent): Boolean =
+        event.className?.toString()?.endsWith(".StatusPlaybackActivity") == true
 
     /** WhatsApp's call screens (ringing, in a call) are named for VoIP; a call is never turned away. */
     private fun isCall(event: AccessibilityEvent) = event.className?.toString()?.contains("voip", ignoreCase = true) == true
@@ -82,6 +95,7 @@ class BlockScreenService : AccessibilityService() {
 
     companion object {
         private const val ADMIN_DIALOG = "com.android.settings.enterprise.ActionDisabledByAdminDialog"
+        private val WHATSAPP = setOf("com.whatsapp", "com.whatsapp.w4b")
 
         @Volatile private var running: BlockScreenService? = null
 
