@@ -27,7 +27,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Calendar
@@ -73,7 +72,6 @@ class BlockedActivity : Activity() {
         displayFace = display
         val body = resources.getFont(R.font.work_sans)
         val strong = resources.getFont(R.font.work_sans_semibold)
-        val tries = countTry(savedInstanceState == null && !previewing)
 
         column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -85,32 +83,24 @@ class BlockedActivity : Activity() {
         ring = RingView(this, mood, display, strong, ringLabel(previewing)) { minute() }
         val title = text("Not now, Tolu.", 36f, mood.ink, display).apply { setPadding(0, dp(30), 0, 0) }
 
-        // Àṣàrò's line is the message: his face beside it, no box.
-        val asaro = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(6), dp(6), dp(6), dp(6))
-        }
-        val face = ImageView(this).apply {
-            runCatching { setImageDrawable(packageManager.getApplicationIcon(ASARO)) }
-        }
-        asaro.addView(face, LinearLayout.LayoutParams(dp(30), dp(30)))
-        val said = text(asaroLine(tries), 15f, mood.soft, body).apply {
-            gravity = Gravity.START
-            setPadding(dp(10), 0, 0, 0)
-            setLineSpacing(0f, 1.25f)
-            maxWidth = dp(260)
-        }
-        asaro.addView(said, wrap())
-        // Poke him and he answers, with a little jump.
-        var pokes = 0
-        asaro.setOnClickListener {
-            val answers = listOf("Ehen? I'm here.", "Don't poke me o. Go and rest.", "Oya. Phone down.", "I'm still here o.")
-            said.text = answers[pokes++ % answers.size]
-            face.animate().translationY(-dp(8).toFloat()).setDuration(120).withEndAction {
-                face.animate().translationY(0f).setDuration(260).setInterpolator(DecelerateInterpolator()).start()
-            }.start()
-            asaro.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        // Under the title, the verse for this part of the day (the ring already says until when).
+        val verse = TextView(this).apply {
+            val words = "“${mood.verse}”"
+            val ref = "  ${mood.reference}"
+            text = android.text.SpannableStringBuilder(words + ref).apply {
+                // Where the sun sits behind the words (dawn and dusk), the reference is white, not a warm colour lost in the glow.
+                val refColour = if (mood == Mood.MORNING || mood == Mood.EVENING) 0xFFFFFFFF.toInt() else mood.accent
+                setSpan(android.text.style.ForegroundColorSpan(refColour), words.length, length, 0)
+            }
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(mood.soft)
+            typeface = body
+            gravity = Gravity.CENTER
+            setLineSpacing(0f, 1.3f)
+            setPadding(0, dp(14), 0, 0)
+            maxWidth = dp(300)
+            // A soft shadow keeps it readable over any sky, without a box.
+            if (!mood.lightBackground) setShadowLayer(dp(6).toFloat(), 0f, dp(1).toFloat(), 0x80000000.toInt())
         }
 
         // One button for the good thing; everything else is a quiet link.
@@ -133,37 +123,17 @@ class BlockedActivity : Activity() {
 
         column.addView(ring, LinearLayout.LayoutParams(dp(200), dp(200)))
         column.addView(title)
-        column.addView(asaro, wrap().apply { topMargin = dp(14) })
+        column.addView(verse, wrap())
         column.addView(primary, wrap().apply { topMargin = dp(36) })
         if (links.childCount > 0) column.addView(links, wrap().apply { topMargin = dp(6) })
-
-        // The verse, small, at the foot of the screen, its reference in the same line.
-        val verse = TextView(this).apply {
-            val words = "“${mood.verse}”"
-            val ref = "  ${mood.reference}"
-            text = android.text.SpannableStringBuilder(words + ref).apply {
-                // Where the sun sits behind the verse (dawn and dusk), the reference is white, not a warm colour lost in the glow.
-                val refColour = if (mood == Mood.MORNING || mood == Mood.EVENING) 0xFFFFFFFF.toInt() else mood.accent
-                setSpan(android.text.style.ForegroundColorSpan(refColour), words.length, length, 0)
-            }
-            // A soft shadow keeps it readable over the sun, without a box.
-            if (!mood.lightBackground) setShadowLayer(dp(6).toFloat(), 0f, dp(1).toFloat(), 0x80000000.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-            setTextColor(mood.soft)
-            typeface = body
-            gravity = Gravity.CENTER
-            setLineSpacing(0f, 1.3f)
-            setPadding(dp(40), 0, dp(40), dp(36))
-        }
 
         root = FrameLayout(this)
         root.addView(SkyView(this, mood) { minute() })
         root.addView(column, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
-        root.addView(verse, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
         setContentView(root)
 
         // Everything eases up into place, one after another, with a soft tap to say "I stopped you".
-        val order = listOfNotNull(ring, title, asaro, primary, links.takeIf { it.childCount > 0 }, verse)
+        val order = listOfNotNull(ring, title, verse, primary, links.takeIf { it.childCount > 0 })
         order.forEachIndexed { i, v ->
             v.alpha = 0f
             v.translationY = dp(16).toFloat()
@@ -171,15 +141,6 @@ class BlockedActivity : Activity() {
         }
         root.post { root.performHapticFeedback(HapticFeedbackConstants.CONFIRM) }
 
-        // He bobs, the way he does in the app.
-        ValueAnimator.ofFloat(0f, -dp(4).toFloat()).apply {
-            duration = 1300
-            repeatMode = ValueAnimator.REVERSE
-            repeatCount = ValueAnimator.INFINITE
-            startDelay = 1400
-            addUpdateListener { face.translationY = it.animatedValue as Float }
-            start()
-        }
     }
 
     override fun onResume() {
@@ -268,66 +229,6 @@ class BlockedActivity : Activity() {
         }
     }
 
-    /** Counts a try against this lock (the evening, the night, the morning), once per opening, and returns the total. */
-    private fun countTry(isNew: Boolean): Int {
-        val prefs = getSharedPreferences("focus", MODE_PRIVATE)
-        val now = Calendar.getInstance()
-        val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-        // A lock that crosses midnight belongs to the day it started.
-        val sinceStart = mood.start?.let { (minute - it + 1440) % 1440 } ?: 0
-        now.add(Calendar.MINUTE, -sinceStart)
-        val key = "tries_${mood.name}_${now.get(Calendar.YEAR)}_${now.get(Calendar.DAY_OF_YEAR)}"
-        val count = prefs.getInt(key, 0) + if (isNew) 1 else 0
-        if (isNew) prefs.edit().putInt(key, count).apply()
-        return count.coerceAtLeast(1)
-    }
-
-    /**
-     * Àṣàrò, by try. His rules (ASARO-CHARACTER.md): Naija English, spoken; tease the phone, never Tolu; watching is
-     * rationed, so the record line comes once, at the third try; no emoji beside his face; the sincere line comes last.
-     */
-    private fun asaroLine(tries: Int): String {
-        val lines = when (mood) {
-            Mood.NIGHT -> listOf(
-                "It's night o. Go and sleep.",
-                "Again? The phone will still be here in the morning.",
-                "Three times now. I'm keeping absolute record.",
-                "This phone, what is it giving you at this hour?",
-                "Oya. Put it down. Àṣàrò is asking nicely.",
-            )
-            Mood.MORNING -> listOf(
-                "Morning o. Bible first.",
-                "You can find every app, but not JW Library? Make it make sense.",
-                "Hmmm. I'm keeping absolute record.",
-                "Oya. Read, then write. We move.",
-            )
-            Mood.EVENING -> listOf(
-                "Work is done for today. Leave it.",
-                "Slack again? They will survive till seven.",
-                "Hmmm. I'm keeping absolute record.",
-                "You're forming busy abi? Go and rest.",
-            )
-            Mood.TIDE -> listOf(
-                "Fifteen minutes straight. Oya, small break.",
-                "It's coming back soon. Relax.",
-                "Again? I'm keeping absolute record.",
-                "What is that phone giving you that I'm not giving you?",
-            )
-            Mood.PARKED -> listOf(
-                "This one is resting till November. Your journal is open o.",
-                "You want to build again? Write first.",
-                "Hmmm. I'm keeping absolute record.",
-            )
-            Mood.ENTRY -> listOf(
-                "Two answers first. Then everything opens.",
-                "You can find WhatsApp, but you can't find me?",
-                "Three tries. I'm keeping absolute record.",
-                "Oya, come. One reading, two answers. We start somewhere.",
-            )
-        }
-        return lines.getOrNull(tries - 1) ?: "I'm on your side o. That's why I disturb."
-    }
-
     private fun pill(label: String, filled: Boolean, face: Typeface, onClick: () -> Unit) =
         text(label, 16f, if (filled) mood.onAccent else mood.ink, face).apply {
             setPadding(dp(34), dp(15), dp(34), dp(15))
@@ -382,8 +283,6 @@ internal enum class Mood(
     val eyebrow: String,
     val top: Int, val bottom: Int,
     val ink: Int, val soft: Int, val accent: Int, val onAccent: Int, val track: Int,
-    /** Àṣàrò's pill: solid enough that his words read over any sky, the sun included. */
-    val pill: Int,
     val lightBackground: Boolean,
     val start: Int?, val end: Int?, val until: String,
     val verse: String, val reference: String,
@@ -392,7 +291,6 @@ internal enum class Mood(
     NIGHT(
         "NIGHT", 0xFF050A14.toInt(), 0xFF17263F.toInt(),
         0xFFEFE6D8.toInt(), 0xB8EFE6D8.toInt(), 0xFFE8D6A0.toInt(), 0xFF17263F.toInt(), 0x1FFFFFFF,
-        pill = 0xFF1C2A44.toInt(),
         lightBackground = false,
         start = 20 * 60, end = 5 * 60, until = "until 5AM",
         verse = "For he provides sleep for those he loves.", reference = "Psalm 127:2",
@@ -401,7 +299,6 @@ internal enum class Mood(
     MORNING(
         "BIBLE HOUR", 0xFF17263F.toInt(), 0xFFE18F43.toInt(),
         0xFFFFFFFF.toInt(), 0xD9FFFFFF.toInt(), 0xFFFFE2B8.toInt(), 0xFF17263F.toInt(), 0x33FFFFFF,
-        pill = 0xE617263F.toInt(),
         lightBackground = false,
         start = 5 * 60, end = 7 * 60, until = "until 7AM",
         verse = "Your word is a lamp to my foot, and a light for my path.", reference = "Psalm 119:105",
@@ -410,7 +307,6 @@ internal enum class Mood(
     EVENING(
         "EVENING", 0xFF17263F.toInt(), 0xFF6E3448.toInt(),
         0xFFFFFFFF.toInt(), 0xCCFFFFFF.toInt(), 0xFFE18F43.toInt(), 0xFF17263F.toInt(), 0x26FFFFFF,
-        pill = 0xE62A1C33.toInt(),
         lightBackground = false,
         start = 17 * 60 + 30, end = 7 * 60, until = "until 7AM",
         verse = "For everything there is an appointed time.", reference = "Ecclesiastes 3:1",
@@ -419,7 +315,6 @@ internal enum class Mood(
     ENTRY(
         "BEFORE ANYTHING", 0xFFF6EFE3.toInt(), 0xFFE9DBC5.toInt(),
         0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFF8EE.toInt(), 0x1A17263F,
-        pill = 0xFFE3D3BA.toInt(),
         lightBackground = true,
         start = null, end = null, until = "then it opens",
         verse = "Man must live, not on bread alone, but on every word coming from Jehovah’s mouth.", reference = "Matthew 4:4",
@@ -429,7 +324,6 @@ internal enum class Mood(
     TIDE(
         "LOW TIDE", 0xFF051C24.toInt(), 0xFF0E4652.toInt(),
         0xFFFFFFFF.toInt(), 0xCCFFFFFF.toInt(), 0xFF8FE3D6.toInt(), 0xFF051C24.toInt(), 0x26FFFFFF,
-        pill = 0xE6041820.toInt(),
         lightBackground = false,
         start = null, end = null, until = "till the tide's back",
         verse = "Then your peace would become just like a river, and your righteousness like the waves of the sea.", reference = "Isaiah 48:18",
@@ -439,7 +333,6 @@ internal enum class Mood(
     PARKED(
         "PARKED", 0xFFFBF6EC.toInt(), 0xFFEEDFC6.toInt(),
         0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFF8EE.toInt(), 0x1A17263F,
-        pill = 0xFFE6D8C2.toInt(),
         lightBackground = true,
         start = null, end = null, until = "until 15 Nov",
         verse = "The plans of the diligent surely lead to success.", reference = "Proverbs 21:5",

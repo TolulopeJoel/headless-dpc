@@ -20,7 +20,7 @@ import java.util.Calendar
  *   05:00  MORNING  Chrome (jw.org and wol.jw.org only), JW Library and Àṣàrò open
  *   07:00  DAY      everything open, once today's Àṣàrò entry exists (until then it stays MORNING; 12:00 releases it regardless)
  *   17:30  EVENING  Slack locks
- *   20:00  NIGHT    everything locks except calls, PalmPay, the clock, JW Library and Àṣàrò
+ *   20:00  NIGHT    everything locks except calls, PalmPay, the clock, Recorder, Notepad, Calculator, JW Library and Àṣàrò
  *   21:00           hotspot and USB debugging off (the laptop's internet); on Saturdays at 20:00, with the apps
  *   22:00           JW Library and Àṣàrò lock too
  * Every trigger works out the phase from the clock, so a missed or extra alarm can't leave the phone in the wrong state.
@@ -126,11 +126,14 @@ class ScheduleReceiver : BroadcastReceiver() {
         private const val CHROME = "com.android.chrome"
         private val SLACK = setOf("com.Slack")
 
-        /** Open all night: calls, PalmPay, the alarm clock, and the DPC itself. */
+        /** Never locked: calls, PalmPay, the alarm clock, the three tools that capture rather than feed, and the DPC itself. */
         private val NIGHT_ALLOWED = setOf(
             "com.sh.smart.caller",          // phone calls (Android won't suspend the dialer anyway)
             "com.transsnet.palmpay",
             "com.transsion.deskclock",      // so the morning alarm always rings
+            "com.transsion.soundrecorder",  // Recorder: voice memos, talk practice
+            "com.transsion.notebook",       // Notepad: write the thought down and let it go
+            "com.transsion.calculator",
             "com.tolu.dpc",
         )
 
