@@ -30,6 +30,7 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             ACTION_ENTRY_SAVED -> recordEntry(context)
+            ACTION_GRACE -> recordGrace(context, intent.getLongExtra(EXTRA_UNTIL, 0L))
             ACTION_TEST_GATE -> startGateTest()
             ACTION_TEST_NIGHT -> startTest(Phase.NIGHT)
             ACTION_TEST_MORNING -> startTest(Phase.MORNING)
@@ -51,6 +52,15 @@ class ScheduleReceiver : BroadcastReceiver() {
         // Alarms from earlier versions (v1.1's window, v1.2's phase names), cancelled on every run so they can't linger.
         private val LEGACY_ACTIONS = listOf("RESTRICT", "UNRESTRICT", "MORNING", "DAY", "EVENING", "NIGHT")
             .map { "com.tolu.dpc.ACTION_$it" }
+
+        /**
+         * One-off grace from adb: USB debugging and the hotspot stay on until `until` (epoch ms, at most 6 hours ahead).
+         * Apps still lock on time; only the two night device rules wait. It can only be sent while debugging is still on.
+         */
+        const val ACTION_GRACE = "com.tolu.dpc.ACTION_GRACE"
+        const val EXTRA_UNTIL = "until"
+        private const val KEY_GRACE_UNTIL = "grace_until_millis"
+        private const val GRACE_MAX_MS = 6 * 60 * 60 * 1000L
 
         /** Sent by Àṣàrò each time a new entry is saved. */
         const val ACTION_ENTRY_SAVED = "com.tolu.dpc.ACTION_ENTRY_SAVED"
@@ -132,6 +142,14 @@ class ScheduleReceiver : BroadcastReceiver() {
             prefs(context).edit().putLong(KEY_LAST_ENTRY, System.currentTimeMillis()).apply()
             Log.d(TAG, "entry saved")
         }
+
+        private fun recordGrace(context: Context, until: Long) {
+            val capped = until.coerceAtMost(System.currentTimeMillis() + GRACE_MAX_MS)
+            prefs(context).edit().putLong(KEY_GRACE_UNTIL, capped).apply()
+            Log.d(TAG, "grace until $capped")
+        }
+
+        private fun inGrace(context: Context) = System.currentTimeMillis() < prefs(context).getLong(KEY_GRACE_UNTIL, 0L)
 
         private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -248,7 +266,7 @@ class ScheduleReceiver : BroadcastReceiver() {
 
             // A test skips the device rules: blocking debugging would cut the adb session running the test,
             // and blocking tethering would cut the laptop's internet.
-            val nightRules = jwOnly && !testing
+            val nightRules = jwOnly && !testing && !inGrace(context)
             NIGHT_RESTRICTIONS.forEach {
                 if (nightRules) dpm.addUserRestriction(admin, it) else dpm.clearUserRestriction(admin, it)
             }

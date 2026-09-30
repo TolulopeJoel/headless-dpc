@@ -19,6 +19,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Calendar
@@ -82,17 +83,65 @@ class BlockedActivity : Activity() {
         listOf(title, message, verse, reference).forEach { column.addView(it) }
         column.addView(home, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(40) })
 
+        // Àṣàrò keeps receipts: his face, and a count of tries in this lock.
+        val tries = countTry(savedInstanceState == null)
+        val asaro = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(10), dp(20), dp(10))
+            background = GradientDrawable().apply { cornerRadius = dp(26).toFloat(); setColor(mood.track) }
+        }
+        val face = ImageView(this).apply {
+            runCatching { setImageDrawable(packageManager.getApplicationIcon(ASARO)) }
+        }
+        asaro.addView(face, LinearLayout.LayoutParams(dp(40), dp(40)))
+        asaro.addView(text(asaroLine(tries), 13f, mood.ink, strong).apply { gravity = Gravity.START; setPadding(dp(12), 0, 0, 0) })
+        column.addView(asaro, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(32) })
+
         val root = FrameLayout(this)
         root.addView(SkyView(this, mood))
         root.addView(column, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         setContentView(root)
 
         // Everything eases up into place, one after another.
-        listOf(eyebrow, ring, title, message, verse, reference, home).forEachIndexed { i, v ->
+        listOf(eyebrow, ring, title, message, verse, reference, home, asaro).forEachIndexed { i, v ->
             v.alpha = 0f
             v.translationY = dp(18).toFloat()
             v.animate().alpha(1f).translationY(0f).setStartDelay(90L * i).setDuration(620).setInterpolator(DecelerateInterpolator(2f)).start()
         }
+        // He bobs, the way he does in the app.
+        ValueAnimator.ofFloat(0f, -dp(4).toFloat()).apply {
+            duration = 1300
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            startDelay = 1400
+            addUpdateListener { face.translationY = it.animatedValue as Float }
+            start()
+        }
+    }
+
+    /** Counts a try against this lock (the evening, the night, the morning), once per opening, and returns the total. */
+    private fun countTry(isNew: Boolean): Int {
+        val prefs = getSharedPreferences("focus", MODE_PRIVATE)
+        val now = Calendar.getInstance()
+        val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+        // A lock that crosses midnight belongs to the day it started.
+        val sinceStart = mood.start?.let { (minute - it + 1440) % 1440 } ?: 0
+        now.add(Calendar.MINUTE, -sinceStart)
+        val key = "tries_${mood.name}_${now.get(Calendar.YEAR)}_${now.get(Calendar.DAY_OF_YEAR)}"
+        val count = prefs.getInt(key, 0) + if (isNew) 1 else 0
+        if (isNew) prefs.edit().putInt(key, count).apply()
+        return count.coerceAtLeast(1)
+    }
+
+    private fun asaroLine(tries: Int): String {
+        val span = when (mood) {
+            Mood.NIGHT -> "tonight"
+            Mood.MORNING -> "this morning"
+            Mood.EVENING -> "this evening"
+            Mood.ENTRY -> "today"
+        }
+        return if (tries == 1) "First try $span.\nI'm keeping absolute record." else "Try $tries $span.\nI'm keeping absolute record."
     }
 
     override fun onResume() {
@@ -129,6 +178,10 @@ class BlockedActivity : Activity() {
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val ASARO = "com.asaro.meditation"
+    }
 }
 
 /** One look per part of the day. `start`/`end` are minutes after midnight; null means there's no countdown. */
