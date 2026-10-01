@@ -83,6 +83,14 @@ class BlockScreenService : AccessibilityService() {
             } else if (pkg != null && pkg !in PASSING && !pkg.contains("inputmethod") && !pkg.contains("keyboard")) {
                 toolFront = null   // left the tool (the keyboard and notifications don't count as leaving)
             }
+            // An app that should be locked but that Android wouldn't suspend (Play Store, Settings at night): turned away.
+            if (pkg != null && pkg in ScheduleReceiver.softLocked && !isCall(event) && !ColourKeeper.inCall(this)) {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                handler.postDelayed({
+                    startActivity(Intent(this, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+                }, 150)
+                return
+            }
             // WhatsApp statuses are off: the status player is closed the moment it opens. Chats and calls are untouched.
             if (pkg != null && pkg in WHATSAPP && isStatusPlayer(event)) {
                 performGlobalAction(GLOBAL_ACTION_BACK)

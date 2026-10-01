@@ -238,6 +238,9 @@ class ScheduleReceiver : BroadcastReceiver() {
         // ── Public entry points ───────────────────────────────────────────────────
 
         /** Idempotent: put the phone in the current phase and re-arm every alarm. Safe to call as often as you like. */
+        /** Apps that should be locked right now but that Android refused to suspend; BlockScreenService turns them away. */
+        @Volatile var softLocked: Set<String> = emptySet()
+
         /** When enforce last ran (elapsed ms): after a Hiber freeze, the first touch uses this to catch up at once. */
         @Volatile var lastEnforceAt = 0L
 
@@ -325,6 +328,9 @@ class ScheduleReceiver : BroadcastReceiver() {
             val release = packages - suspend.toSet()
             val failed = mutableListOf<String>()
             if (suspend.isNotEmpty()) failed += dpm.setPackagesSuspended(admin, suspend.toTypedArray(), true)
+            // Android won't suspend some apps (Play Store, as the app verifier; Settings on HiOS). Those are turned away
+            // at the door by BlockScreenService instead.
+            softLocked = failed.toSet().intersect(suspend.toSet())
             if (release.isNotEmpty()) failed += dpm.setPackagesSuspended(admin, release.toTypedArray(), false)
             Log.d(TAG, "applyPhase: $phase (test=$testing, gated=${state.gated}) suspended ${suspend.size}, released ${release.size}, failed $failed")
 
