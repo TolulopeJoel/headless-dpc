@@ -91,10 +91,10 @@ class BlockScreenService : AccessibilityService() {
                 }, 150)
                 return
             }
-            // WhatsApp statuses are off: the status player is closed the moment it opens. Chats and calls are untouched.
-            if (pkg != null && pkg in WHATSAPP && isStatusPlayer(event)) {
+            // WhatsApp statuses are open 19:30–20:00 only; otherwise the player closes the moment it opens. Chats and calls are untouched.
+            if (pkg != null && pkg in WHATSAPP && isStatusPlayer(event) && !statusWindow()) {
                 performGlobalAction(GLOBAL_ACTION_BACK)
-                android.widget.Toast.makeText(this, "Statuses are off o. Your chats are open.", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(this, "Statuses open 7:30–8PM. Your chats are open.", android.widget.Toast.LENGTH_SHORT).show()
                 return
             }
             // A soft tide (WhatsApp): turn it away at the door, unless it's a call, which always comes through.
@@ -121,6 +121,13 @@ class BlockScreenService : AccessibilityService() {
      */
     private fun isStatusPlayer(event: AccessibilityEvent): Boolean =
         event.className?.toString()?.endsWith(".StatusPlaybackActivity") == true
+
+    /** The half hour statuses are open: 19:30–20:00, before WhatsApp locks for the night. */
+    private fun statusWindow(): Boolean {
+        val now = java.util.Calendar.getInstance()
+        val minute = now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
+        return minute >= 19 * 60 + 30 && minute < 20 * 60
+    }
 
     /** WhatsApp's call screens (ringing, in a call) are named for VoIP; a call is never turned away. */
     private fun isCall(event: AccessibilityEvent) = event.className?.toString()?.contains("voip", ignoreCase = true) == true
