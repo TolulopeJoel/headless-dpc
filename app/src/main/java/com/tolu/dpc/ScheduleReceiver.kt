@@ -71,12 +71,6 @@ class ScheduleReceiver : BroadcastReceiver() {
         private val LEGACY_ACTIONS = listOf("RESTRICT", "UNRESTRICT", "MORNING", "DAY", "EVENING", "NIGHT")
             .map { "com.tolu.dpc.ACTION_$it" }
 
-        /**
-         * The one grace there was (30 Sep 2026, until midnight): USB debugging and the hotspot stayed on while apps locked.
-         * The command that set it is gone, so no new grace can be given from a laptop; this only reads the old one out.
-         */
-        private const val KEY_GRACE_UNTIL = "grace_until_millis"
-
         /** Sent by Àṣàrò each time a new entry is saved. */
         const val ACTION_ENTRY_SAVED = "com.tolu.dpc.ACTION_ENTRY_SAVED"
 
@@ -134,6 +128,8 @@ class ScheduleReceiver : BroadcastReceiver() {
             "com.transsion.soundrecorder",  // Recorder: voice memos, talk practice
             "com.transsion.notebook",       // Notepad: write the thought down and let it go
             "com.transsion.calculator",
+            "com.android.settings",         // Settings, always: its risky parts are locked on their own
+            "com.android.settings.intelligence",
             "com.tolu.dpc",
         )
 
@@ -179,7 +175,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             "com.asaro.meditation.dev" to Calendar.getInstance().apply { set(2026, Calendar.NOVEMBER, 15, 0, 0, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis,
         )
 
-        private fun parked(): Set<String> = PARKED_UNTIL.filterValues { System.currentTimeMillis() < it }.keys
+        private fun parked(): Set<String> = PARKED_UNTIL.filter { (_, until) -> System.currentTimeMillis() < until }.keys
 
         /** adb: `--ef drift 20` pretends 20 minutes of drift, to see Colour dim (0 puts it back). */
         const val ACTION_TEST_COLOUR = "com.tolu.dpc.ACTION_TEST_COLOUR"
@@ -208,8 +204,6 @@ class ScheduleReceiver : BroadcastReceiver() {
             prefs(context).edit().putLong(KEY_LAST_ENTRY, System.currentTimeMillis()).apply()
             Log.d(TAG, "entry saved")
         }
-
-        private fun inGrace(context: Context) = System.currentTimeMillis() < prefs(context).getLong(KEY_GRACE_UNTIL, 0L)
 
         private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -343,7 +337,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             // The hotspot and debugging wait until 21:00 (the plan's "laptop shut"), even though the apps lock at 20:00;
             // on Saturdays they don't wait.
             val beforeNine = phase == Phase.NIGHT && minuteNow().let { it >= 20 * 60 && it < deviceRulesFrom() }
-            val nightRules = jwOnly && !testing && !inGrace(context) && !beforeNine
+            val nightRules = jwOnly && !testing && !beforeNine
             // Once today's entry is written (after 05:00), the hotspot comes back even before 07:00: the Bible came
             // first, so the laptop can have its internet. USB debugging and the apps still wait for 07:00.
             val entryWritten = phase == Phase.MORNING && hasTodaysEntry(context)
