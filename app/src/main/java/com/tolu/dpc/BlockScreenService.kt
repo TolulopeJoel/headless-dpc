@@ -28,6 +28,7 @@ class BlockScreenService : AccessibilityService() {
     private fun toolName(pkg: String) = when (pkg) {
         "com.transsion.soundrecorder" -> "Recorder"
         "com.transsion.notebook" -> "Notepad"
+        "com.transsion.camera" -> "Camera"
         else -> "Calculator"
     }
 
@@ -151,7 +152,7 @@ class BlockScreenService : AccessibilityService() {
     companion object {
         private const val ADMIN_DIALOG = "com.android.settings.enterprise.ActionDisabledByAdminDialog"
         private val WHATSAPP = setOf("com.whatsapp", "com.whatsapp.w4b")
-        private val TOOLS = setOf("com.transsion.soundrecorder", "com.transsion.notebook", "com.transsion.calculator")
+        private val TOOLS = setOf("com.transsion.soundrecorder", "com.transsion.notebook", "com.transsion.calculator", "com.transsion.camera")
         /** Windows that pass over whatever is open without meaning you left it. */
         private val PASSING = setOf("com.android.systemui", "com.tolu.dpc", "android")
         private const val TOOL_LIMIT_MS = 4 * 60_000L

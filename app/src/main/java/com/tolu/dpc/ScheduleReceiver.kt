@@ -18,10 +18,11 @@ import java.util.Calendar
 /**
  * The daily focus schedule:
  *   05:00  MORNING  Chrome (jw.org and wol.jw.org only), JW Library and Àṣàrò open
- *   07:00  DAY      everything open, once today's Àṣàrò entry exists (until then it stays MORNING; 12:00 releases it regardless)
+ *   07:00  DAY      everything open, once today's Àṣàrò entry exists (until then it stays MORNING, all day if need be)
  *   17:30  EVENING  Slack locks
  *   20:00  NIGHT    everything locks except calls, PalmPay, the clock, Recorder, Notepad, Calculator, JW Library and Àṣàrò
- *   21:00           hotspot and USB debugging off (the laptop's internet); on Saturdays at 20:00, with the apps
+ *   21:00           hotspot and USB debugging off (the laptop's internet); on Saturdays at 20:00, with the apps; 22:00 the night before a
+ *                   Thursday or Sunday assignment in the calendar (see Assignments)
  *   22:00           JW Library and Àṣàrò lock too
  * Every trigger works out the phase from the clock, so a missed or extra alarm can't leave the phone in the wrong state.
  */
@@ -42,6 +43,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             ACTION_TEST_GATE, ACTION_TEST_NIGHT, ACTION_TEST_MORNING -> testMinute = intent.getIntExtra("minute", -1)
             ACTION_TEST_END -> { testMinute = -1; previewUntil = 0L }   // enforce() below redraws the widget
             ACTION_TEST_TIDE -> ColourKeeper.testTide(context, intent.getStringExtra("pkg") ?: "com.android.chrome")
+            ACTION_ASSIGNMENTS -> Log.d(TAG, "assignments:\n" + Assignments.describe(context))
             ACTION_TEST_COLOUR -> {
                 ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f), intent.getStringExtra("pkg") ?: "com.android.chrome")
                 return   // look only: pretends minutes of drift, nothing is locked
@@ -90,29 +92,41 @@ class ScheduleReceiver : BroadcastReceiver() {
             20 * 60 to Phase.NIGHT,
         )
 
-        /** The morning gate: an entry counts for today only if it was saved after 05:00; 12:00 releases the gate regardless. */
+        /**
+         * The morning gate: an entry counts for today only if it was saved after 05:00. There's no release time: the 12:00
+         * one was removed on 9 Oct 2026 at his request, so without an entry the phone stays in the morning phase all day.
+         */
         private const val ENTRY_COUNTS_FROM = 5 * 60
-        private const val GATE_RELEASE = 12 * 60
         private const val PREFS = "focus"
         private const val KEY_LAST_ENTRY = "last_entry_millis"
 
         /**
          * Inside the night: the Bible and Àṣàrò stay open until 22:00; the hotspot and debugging go at 21:00, except on
          * Saturdays, when they go at 20:00 with everything else. Saturday is the night before the weekend meeting and
-         * the fifth field day, so the laptop closes earliest then (the life audit's advice).
+         * the fifth field day, so the laptop closes earliest then (the life audit's advice). He moved Saturday to 21:00 on
+         * 3 Oct 2026 and back to 20:00 on 9 Oct; a Sunday assignment in the calendar still gives that Saturday until 22:00.
          */
         private const val BIBLE_UNTIL = 22 * 60
         private const val DEVICE_RULES_FROM = 21 * 60
         private val BIBLE_APPS = setOf("org.jw.jwlibrary.mobile", "com.asaro.meditation")
 
-        /** Alarm times: the phase boundaries, the two steps inside the night, and the gate's release. */
-        private val ALARM_MINUTES = BOUNDARIES.map { it.first } + DEVICE_RULES_FROM + BIBLE_UNTIL + GATE_RELEASE
+        /** Weekdays from 09:00, the work HR site opens in Chrome even while the morning gate keeps Chrome to jw.org. */
+        private const val WORK_SITES_FROM = 9 * 60
+        private val WORK_SITES = arrayOf("schulltech.approvehr.io")
 
-        private fun minuteNow(): Int = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
+        /** Alarm times: the phase boundaries, the two steps inside the night, and the work site. */
+        private val ALARM_MINUTES = BOUNDARIES.map { it.first } + DEVICE_RULES_FROM + BIBLE_UNTIL + WORK_SITES_FROM
 
         /** When the laptop's internet goes tonight: 20:00 on a Saturday, 21:00 otherwise. */
         private fun deviceRulesFrom(): Int =
             if (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY) 20 * 60 else DEVICE_RULES_FROM
+
+        /** Monday to Friday, from 09:00. */
+        private fun workHours(): Boolean = Calendar.getInstance().let {
+            it.get(Calendar.DAY_OF_WEEK) !in setOf(Calendar.SATURDAY, Calendar.SUNDAY) && minuteNow() >= WORK_SITES_FROM
+        }
+
+        private fun minuteNow(): Int = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 
         /** 20:00–22:00: the night has started, but the Bible and Àṣàrò are still open. */
         fun bibleEvening(): Boolean = minuteNow().let { it >= 20 * 60 && it < BIBLE_UNTIL }
@@ -120,7 +134,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         private const val CHROME = "com.android.chrome"
         private val SLACK = setOf("com.Slack")
 
-        /** Never locked: calls, PalmPay, the alarm clock, the three tools that capture rather than feed, and the DPC itself. */
+        /** Never locked: calls, PalmPay, the alarm clock, the tools that capture rather than feed, and the DPC itself. */
         private val NIGHT_ALLOWED = setOf(
             "com.sh.smart.caller",          // phone calls (Android won't suspend the dialer anyway)
             "com.transsnet.palmpay",
@@ -128,6 +142,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             "com.transsion.soundrecorder",  // Recorder: voice memos, talk practice
             "com.transsion.notebook",       // Notepad: write the thought down and let it go
             "com.transsion.calculator",
+            "com.transsion.camera",         // Camera: capture it, like Notepad
             "com.android.settings",         // Settings, always: its risky parts are locked on their own
             "com.android.settings.intelligence",
             "com.tolu.dpc",
@@ -169,6 +184,9 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         /** adb: sends one app's tide out now, for real (`--es pkg com.whatsapp.w4b`; Chrome if not given). */
         const val ACTION_TEST_TIDE = "com.tolu.dpc.ACTION_TEST_TIDE"
+
+        /** adb: logs the assignments the DPC has found in the calendar, and which nights they open (look only). */
+        const val ACTION_ASSIGNMENTS = "com.tolu.dpc.ACTION_ASSIGNMENTS"
 
         /** Apps parked until a date: the Àṣàrò dev build rests until 15 Nov 2026, the end of the Six Anchors plan. */
         private val PARKED_UNTIL = mapOf(
@@ -219,14 +237,12 @@ class ScheduleReceiver : BroadcastReceiver() {
             return last >= countsFrom
         }
 
-        /** Between 07:00 and 12:00, the phone stays in the morning phase until today's entry exists. */
+        /** From 07:00, the phone stays in the morning phase until today's entry exists. */
         private fun gated(context: Context): Boolean {
             if (SystemClock.elapsedRealtime() < gateTestUntil) {
                 return prefs(context).getLong(KEY_LAST_ENTRY, 0L) < gateTestSince
             }
-            val now = Calendar.getInstance()
-            val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-            return minute < GATE_RELEASE && !hasTodaysEntry(context)
+            return !hasTodaysEntry(context)
         }
 
         // ── Public entry points ───────────────────────────────────────────────────
@@ -335,9 +351,12 @@ class ScheduleReceiver : BroadcastReceiver() {
             // A test skips the device rules: blocking debugging would cut the adb session running the test,
             // and blocking tethering would cut the laptop's internet.
             // The hotspot and debugging wait until 21:00 (the plan's "laptop shut"), even though the apps lock at 20:00;
-            // on Saturdays they don't wait.
-            val beforeNine = phase == Phase.NIGHT && minuteNow().let { it >= 20 * 60 && it < deviceRulesFrom() }
-            val nightRules = jwOnly && !testing && !beforeNine
+            // on Saturdays they don't wait; the night before an assignment, they wait until 22:00, to prepare on the laptop.
+            Assignments.grantCalendar(context, dpm, admin)
+            val assignment = Assignments.tomorrow(context)
+            val rulesFrom = if (assignment) BIBLE_UNTIL else deviceRulesFrom()
+            val beforeRules = phase == Phase.NIGHT && minuteNow().let { it >= 20 * 60 && it < rulesFrom }
+            val nightRules = jwOnly && !testing && !beforeRules
             // Once today's entry is written (after 05:00), the hotspot comes back even before 07:00: the Bible came
             // first, so the laptop can have its internet. USB debugging and the apps still wait for 07:00.
             val entryWritten = phase == Phase.MORNING && hasTodaysEntry(context)
@@ -350,14 +369,14 @@ class ScheduleReceiver : BroadcastReceiver() {
             // this function early; setting it is allowed and idempotent, so just set it.
             runCatching { dpm.setOrganizationName(admin, OWNER_NAME) }.onFailure { Log.e(TAG, "setOrganizationName failed", it) }
             // A second lock-screen line that follows the day.
-            runCatching { dpm.setDeviceOwnerLockScreenInfo(admin, lockScreenLine(context, state)) }.onFailure { Log.e(TAG, "lock screen line failed", it) }
+            runCatching { dpm.setDeviceOwnerLockScreenInfo(admin, lockScreenLine(context, state, assignment)) }.onFailure { Log.e(TAG, "lock screen line failed", it) }
 
             // The line under "Blocked by work policy" (BlockedActivity covers that dialog now, so this is a fallback).
             runCatching { dpm.setShortSupportMessage(admin, blockedMessage(state)) }
         }
 
         /** The lock screen's own line, by the part of the day. */
-        private fun lockScreenLine(context: Context, state: State): String {
+        private fun lockScreenLine(context: Context, state: State, assignment: Boolean): String {
             val m = minuteNow()
             return when {
                 state.gated -> "Answer two questions in Àṣàrò. Then it all opens."
@@ -365,6 +384,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                 state.tide -> "Tide's out for ${ColourKeeper.tidedNames(context)}. Everything else is open."
                 state.phase == Phase.DAY -> "Open. Use it on purpose."
                 state.phase == Phase.EVENING -> "Work's done. Everything rests at 8."
+                state.phase == Phase.NIGHT && m >= 20 * 60 && m < BIBLE_UNTIL && assignment -> "Assignment tomorrow. The laptop's online till 10."
                 state.phase == Phase.NIGHT && m >= 20 * 60 && m < BIBLE_UNTIL -> "The Bible's open till 10. Everything else is resting."
                 else -> "Rest. JW Library opens at 5."
             }
@@ -416,14 +436,14 @@ class ScheduleReceiver : BroadcastReceiver() {
                 putString("DnsOverHttpsMode", "off")
                 if (jwOnly) {
                     putStringArray("URLBlocklist", arrayOf("*"))
-                    putStringArray("URLAllowlist", JW_SITES)
+                    putStringArray("URLAllowlist", if (workHours()) JW_SITES + WORK_SITES else JW_SITES)
                 }
             }
             // Setting it makes Chrome reload its policies, so only set it when it changes.
             val current = dpm.getApplicationRestrictions(admin, CHROME)
             if (!samePolicy(current, policy)) {
                 dpm.setApplicationRestrictions(admin, CHROME, policy)
-                Log.d(TAG, "chrome policy: jwOnly=$jwOnly")
+                Log.d(TAG, "chrome policy: jwOnly=$jwOnly, work site=${jwOnly && workHours()}")
             }
         }
 
