@@ -131,7 +131,9 @@ class FocusWidget : AppWidgetProvider() {
         }
 
         private fun tap(context: Context, look: Look, field: Boolean): PendingIntent? {
+            // The ring always opens "Now": what's going on, till when, what's next, and the one useful button.
             val intent = when {
+                true -> Intent(context, NowActivity::class.java)
                 field -> Intent(context, FieldPassActivity::class.java)
                 else -> when (look) {
                 Look.MORNING -> context.packageManager.getLaunchIntentForPackage(JW_LIBRARY)

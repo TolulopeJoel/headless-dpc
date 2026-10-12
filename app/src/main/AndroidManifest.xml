@@ -4,6 +4,8 @@
 
     <!-- Assignments: an "Assignment" event in the calendar keeps the hotspot until 22:00 the night before -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- ModeWallpaper: his wallpaper, tinted for the part of the day -->
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <!-- The field pass: time away from home, from a geofence round home (only the leaving and returning times are kept) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -108,6 +110,21 @@
             android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+        <!-- Behind the ring widget: what's going on now -->
+        <activity
+            android:name=".NowActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+        <!-- Shows only the wallpaper, so adb can photograph it -->
+        <activity
+            android:name=".WallpaperPeekActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Wallpaper.NoTitleBar.Fullscreen" />
 
         <!-- Google's location service reports leaving and coming home here -->
         <receiver

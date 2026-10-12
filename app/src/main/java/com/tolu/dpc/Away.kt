@@ -30,9 +30,9 @@ object Away {
     private const val TAG = "Away"
     private const val PREFS = "away"
     private const val RADIUS_M = 200f
-    /** The witnessing window: 06:30 to 09:30. */
+    /** The witnessing window: 06:30 to 10:00 (09:30 until he widened it on 10 Oct). */
     const val FROM = 6 * 60 + 30
-    const val TO = 9 * 60 + 30
+    const val TO = 10 * 60
     const val NEEDED_MINUTES = 120
 
     // ── Home ──────────────────────────────────────────────────────────────────
@@ -124,10 +124,12 @@ object Away {
 
     // ── The count ─────────────────────────────────────────────────────────────
 
-    /** Minutes away from home today between 06:30 and 09:30 (up to now, if still out). */
-    fun minutesAwayThisMorning(context: Context): Int {
-        val from = todayAt(FROM)
-        val to = minOf(todayAt(TO), System.currentTimeMillis())
+    /** Minutes away from home today between 06:30 and 10:00 (up to now, if still out). */
+    fun minutesAwayThisMorning(context: Context): Int = minutesAway(context, todayAt(FROM), todayAt(TO))
+
+    /** Minutes away from home between two times (up to now, if still out). */
+    fun minutesAway(context: Context, from: Long, until: Long): Int {
+        val to = minOf(until, System.currentTimeMillis())
         if (to <= from) return 0
         val a = JSONArray(prefs(context).getString("moves", "[]"))
         val moves = (0 until a.length()).map { a.getJSONObject(it) }.map { it.getLong("at") to it.getBoolean("out") }.sortedBy { it.first }
@@ -174,6 +176,6 @@ object Away {
             "  ${java.util.Date(it.getLong("at"))}: ${if (it.getBoolean("out")) "left" else "came"} home"
         }
         return "home known: ${knowsHome(context)} (${samples(context).size} samples), watching: ${prefs(context).getString("watching", null) != null}, " +
-            "can locate: ${canLocate(context)}\naway this morning (06:30–09:30): ${minutesAwayThisMorning(context)} min\n$moves"
+            "can locate: ${canLocate(context)}\naway this morning (06:30–10:00): ${minutesAwayThisMorning(context)} min\n$moves"
     }
 }

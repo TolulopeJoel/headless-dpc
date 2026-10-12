@@ -120,8 +120,14 @@ class ScheduleReceiver : BroadcastReceiver() {
         private val ALARM_MINUTES = BOUNDARIES.map { it.first } + DEVICE_RULES_FROM + BIBLE_UNTIL + WORK_SITES_FROM
 
         /** When the laptop's internet goes tonight: 20:00 on a Saturday, 21:00 otherwise. */
-        private fun deviceRulesFrom(): Int =
-            if (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY) 20 * 60 else DEVICE_RULES_FROM
+        fun deviceRulesFrom(): Int {
+            val now = Calendar.getInstance()
+            val today = "%04d-%02d-%02d".format(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1, now.get(Calendar.DAY_OF_MONTH))
+            return if (now.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY && today !in LATE_SATURDAYS) 20 * 60 else DEVICE_RULES_FROM
+        }
+
+        /** Saturdays that keep 21:00 like the rest, one at a time: he asked for 10 Oct 2026 at 19:51 that evening. */
+        private val LATE_SATURDAYS = setOf("2026-10-10")
 
         /** Monday to Friday, from 09:00. */
         private fun workHours(): Boolean = Calendar.getInstance().let {
@@ -162,6 +168,12 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         /** jw.org covers its subdomains, wol.jw.org included; jw-cdn.org serves their images and media. */
         private val JW_SITES = arrayOf("jw.org", "wol.jw.org", "jw-cdn.org")
+
+        /**
+         * Google's results page only, wherever Chrome keeps to jw.org: a word can be looked up (the definition box sits on
+         * the results page), but a result can't be opened, since every other site stays blocked. Asked for on 10 Oct.
+         */
+        private val SEARCH_PAGES = arrayOf("www.google.com/search", "google.com/search", "www.google.com.ng/search", "google.com.ng/search")
 
         /** Night-only device rules: no hotspot (the laptop's internet) and no USB debugging. */
         private val NIGHT_RESTRICTIONS = listOf(
@@ -212,7 +224,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         @Volatile private var previewUntil = 0L
 
         fun previewMood(): String? = previewName?.takeIf {
-            SystemClock.elapsedRealtime() < previewUntil && it in setOf("DAY", "NIGHT", "MORNING", "EVENING", "ENTRY", "TIDE", "PARKED")
+            SystemClock.elapsedRealtime() < previewUntil && it in setOf("DAY", "NIGHT", "MORNING", "EVENING", "ENTRY", "TIDE", "PARKED", "FIELD", "STUDY")
         }
 
         /** A pretend minute of the day for the blocked screen during a test, or -1. Never used by the schedule itself. */
@@ -270,6 +282,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             runLogged("applyPhase") { applyPhase(context, currentState(context)) }
             runLogged("scheduleAlarms") { scheduleAlarms(context) }
             runLogged("refreshWidget") { FocusWidget.refresh(context) }
+            runLogged("wallpaper") { ModeWallpaper.apply(context, currentState(context)) }
         }
 
         fun clockPhase(now: Calendar = Calendar.getInstance()): Phase {
@@ -278,7 +291,8 @@ class ScheduleReceiver : BroadcastReceiver() {
         }
 
         /** The phase to apply, and whether it comes from an adb test (tests skip the night device rules). */
-        data class State(val phase: Phase, val test: Boolean, val gated: Boolean = false, val tide: Boolean = false, val field: Boolean = false)
+        data class State(val phase: Phase, val test: Boolean, val gated: Boolean = false, val tide: Boolean = false, val field: Boolean = false,
+                         val study: Boolean = false)
 
         /** A test never loosens the real schedule: it only applies while the clock says DAY or EVENING. */
         fun currentState(context: Context): State {
@@ -287,7 +301,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             if (daytime && SystemClock.elapsedRealtime() < testUntil) return State(testPhase, test = true)
             if (daytime && gated(context)) return State(Phase.MORNING, test = SystemClock.elapsedRealtime() < gateTestUntil, gated = true)
             return State(clock, test = false, tide = daytime && ColourKeeper.tideOut(context),
-                field = daytime && Field.holding(context) != null)
+                field = daytime && Field.holding(context) != null, study = daytime && Study.holding(context) != null)
         }
 
         fun statusText(context: Context): String {
@@ -310,10 +324,10 @@ class ScheduleReceiver : BroadcastReceiver() {
                 am.setAlarmClock(AlarmManager.AlarmClockInfo(trigger, pi), pi)
                 Log.d(TAG, "scheduleAlarm: ${actionFor(minute)} -> $trigger")
             }
-            // Today's field sessions start and end whenever the calendar says: the DPC wakes at each edge.
+            // Today's field and study sessions start and end whenever the calendar says: the DPC wakes at each edge.
             runCatching {
-                Field.edgesAhead(context).forEach { at ->
-                    val action = "com.tolu.dpc.ACTION_FIELD_" + java.text.SimpleDateFormat("HHmm", java.util.Locale.UK).format(java.util.Date(at))
+                (Field.edgesAhead(context) + Study.edgesAhead(context)).distinct().forEach { at ->
+                    val action = "com.tolu.dpc.ACTION_SESSION_" + java.text.SimpleDateFormat("HHmm", java.util.Locale.UK).format(java.util.Date(at))
                     val pi = pendingIntentFor(context, action)
                     am.setAlarmClock(AlarmManager.AlarmClockInfo(at, pi), pi)
                 }
@@ -349,8 +363,8 @@ class ScheduleReceiver : BroadcastReceiver() {
             // Soft-tided apps (WhatsApp) stay unsuspended so calls ring; BlockScreenService turns them away instead.
             val daytimeLocks = parked() + (ColourKeeper.tidedApps(context) - ColourKeeper.SOFT)
             val suspend = when (phase) {
-                Phase.DAY -> packages.filter { it in daytimeLocks || (state.field && fieldLocked(context, it)) }
-                Phase.EVENING -> packages.filter { it in SLACK || it in daytimeLocks || (state.field && fieldLocked(context, it)) }
+                Phase.DAY -> packages.filter { it in daytimeLocks || ((state.field || state.study) && fieldLocked(context, it)) }
+                Phase.EVENING -> packages.filter { it in SLACK || it in daytimeLocks || ((state.field || state.study) && fieldLocked(context, it)) }
                 Phase.NIGHT -> packages.filter { it !in NIGHT_ALLOWED && !(bibleEvening() && it in BIBLE_APPS) }
                 Phase.MORNING -> packages.filter { it !in MORNING_ALLOWED }
             }
@@ -365,7 +379,7 @@ class ScheduleReceiver : BroadcastReceiver() {
 
             // Chrome keeps the jw.org-only rules all night too, so it stays limited even if it ever escapes suspension.
             val jwOnly = phase == Phase.NIGHT || phase == Phase.MORNING
-            setChromePolicy(dpm, admin, jwOnly || state.field)
+            setChromePolicy(dpm, admin, jwOnly || state.field || state.study)
 
             // A test skips the device rules: blocking debugging would cut the adb session running the test,
             // and blocking tethering would cut the laptop's internet.
@@ -406,6 +420,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                 state.gated -> "Answer two questions in Àṣàrò. Then it all opens."
                 state.phase == Phase.MORNING -> if (hasTodaysEntry(context)) "Entry done. Everything opens at 7." else "Bible first. Everything opens at 7."
                 state.field -> "Field time. The laptop's offline till ${fieldEnds(context)}."
+                state.study -> "Study time. JW Library's open; the rest waits till ${hhmm(Study.endsAt(context))}."
                 state.tide -> "Tide's out for ${ColourKeeper.tidedNames(context)}. Everything else is open."
                 state.phase == Phase.DAY -> "Open. Use it on purpose."
                 state.phase == Phase.EVENING -> "Work's done. Everything rests at 8."
@@ -420,6 +435,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             state.gated -> "Answer two questions in today's Àṣàrò entry and your phone opens."
             state.phase == Phase.NIGHT && bibleEvening() -> "It's night. JW Library and Àṣàrò are open until 10PM."
             state.field -> "It's field time. This opens when the session ends. Can't go out? Take a field pass."
+            state.study -> "It's study time. This opens when the session ends."
             state.tide -> "That app is out with the tide. It comes back by itself."
             state.phase == Phase.DAY -> "Àṣàrò's dev build is parked until 15 November. Your journal is open."
             state.phase == Phase.MORNING -> "Bible first. Everything opens at 7AM."
@@ -462,7 +478,7 @@ class ScheduleReceiver : BroadcastReceiver() {
                 putString("DnsOverHttpsMode", "off")
                 if (jwOnly) {
                     putStringArray("URLBlocklist", arrayOf("*"))
-                    putStringArray("URLAllowlist", if (workHours()) JW_SITES + WORK_SITES else JW_SITES)
+                    putStringArray("URLAllowlist", JW_SITES + SEARCH_PAGES + (if (workHours()) WORK_SITES else emptyArray()))
                 }
             }
             // Setting it makes Chrome reload its policies, so only set it when it changes.
@@ -495,8 +511,10 @@ class ScheduleReceiver : BroadcastReceiver() {
         private fun fieldLocked(context: Context, pkg: String) =
             pkg != CHROME && pkg !in ColourKeeper.SOFT && ColourKeeper.isDrift(context, pkg)
 
-        private fun fieldEnds(context: Context): String =
-            Field.endsAt(context)?.let { java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK).format(java.util.Date(it)) } ?: "later"
+        private fun fieldEnds(context: Context): String = hhmm(Field.endsAt(context))
+
+        private fun hhmm(at: Long?): String =
+            at?.let { java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK).format(java.util.Date(it)) } ?: "later"
 
         private fun actionFor(minute: Int) = "com.tolu.dpc.ACTION_AT_%02d%02d".format(minute / 60, minute % 60)
 

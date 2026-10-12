@@ -19,7 +19,7 @@ import java.util.Locale
 
 /**
  * The field pass: for a morning he can't go out because of work. It opens the hotspot for the rest of today's field
- * sessions, after two hours of public witnessing (06:30–09:30), or once he's been out and work has pulled him back.
+ * sessions, after two hours of public witnessing (06:30–10:00), or once he's been out and work has pulled him back.
  * The reason goes in his own words and stays in the week's list for the Sunday numbers.
  */
 class FieldPassActivity : Activity() {
@@ -53,7 +53,7 @@ class FieldPassActivity : Activity() {
             else -> {
                 column.addView(text(
                     "The hotspot comes back for the rest of today's field time (until $ends). " +
-                        "First, the two hours: public witnessing between 06:30 and 09:30, shown by your phone being away from home. " +
+                        "First, the two hours: public witnessing between 06:30 and 10:00, shown by your phone being away from home. " +
                         "Or, if you went out and work pulled you back, say so.",
                     16f, mood.soft, body).pad())
 
@@ -75,11 +75,12 @@ class FieldPassActivity : Activity() {
                 if (!witnessOpen) {
                     val away = Away.minutesAwayThisMorning(this)
                     val note = if (!Away.knowsHome(this)) "Your phone doesn't know where home is yet. It learns it during the Bible hour."
-                        else "Away from home this morning: ${away / 60}h ${away % 60}m of 2h (06:30–09:30)."
+                        else "Away from home this morning: ${away / 60}h ${away % 60}m of 2h (06:30–10:00)."
                     column.addView(text(note, 13f, mood.soft, body).apply { setPadding(0, dp(6), 0, 0) })
                 }
                 column.addView(pulled, full().apply { topMargin = dp(12) })
-                if (!pulledOpen) column.addView(text("Opens once the field session has begun.", 13f, mood.soft, body).apply { setPadding(0, dp(6), 0, 0) })
+                if (!pulledOpen) column.addView(text("Opens once the field session has begun and your phone has been away from home during it.",
+                    13f, mood.soft, body).apply { setPadding(0, dp(6), 0, 0) })
 
                 // Both wait for a reason.
                 val sync = { val ok = reason.text.trim().length >= 8; witness.alpha = if (witnessOpen && ok) 1f else 0.4f; pulled.alpha = if (pulledOpen && ok) 1f else 0.4f }

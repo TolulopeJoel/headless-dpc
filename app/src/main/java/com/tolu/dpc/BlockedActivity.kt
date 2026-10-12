@@ -342,6 +342,15 @@ internal enum class Mood(
         verse = "How beautiful on the mountains are the feet of the one bringing good news.", reference = "Isaiah 52:7",
         primary = Action.FIELD_SERVICE, secondary = Action.FIELD_PASS,
     ),
+    /** A study session from the calendar: personal study, JW Library open. */
+    STUDY(
+        "STUDY", 0xFFF6EFE3.toInt(), 0xFFE9DBC5.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFF8EE.toInt(), 0x1A17263F,
+        lightBackground = true,
+        start = null, end = null, until = "of study time left",
+        verse = "Keep searching for it as for hidden treasures.", reference = "Proverbs 2:4",
+        primary = Action.JW_LIBRARY, secondary = null,
+    ),
     /** An app parked until a date: the Àṣàrò dev build, until 15 Nov. */
     PARKED(
         "PARKED", 0xFFFBF6EC.toInt(), 0xFFEEDFC6.toInt(),
@@ -399,12 +408,14 @@ internal enum class Mood(
         TIDE -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true, tide = true)
         PARKED -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true)
         FIELD -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true, field = true)
+        STUDY -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true, study = true)
     }
 
     companion object {
         fun of(state: ScheduleReceiver.Companion.State): Mood = when {
             state.gated -> ENTRY
             state.field -> FIELD
+            state.study -> STUDY
             state.tide -> TIDE
             state.phase == ScheduleReceiver.Phase.MORNING -> MORNING
             state.phase == ScheduleReceiver.Phase.EVENING -> EVENING
@@ -459,7 +470,7 @@ private class SkyView(context: Context, private val mood: Mood, private val minu
             Mood.NIGHT -> night(canvas, w, h, t)
             Mood.MORNING -> sun(canvas, w, h, rising = true)
             Mood.EVENING -> sun(canvas, w, h, rising = false)
-            Mood.ENTRY -> paper(canvas, w, h)
+            Mood.ENTRY, Mood.STUDY -> paper(canvas, w, h)
             Mood.TIDE -> sea(canvas, w, h, t)
             Mood.PARKED, Mood.FIELD -> daylight(canvas, w, h)
         }
@@ -617,6 +628,7 @@ private class RingView(
             mood == Mood.TIDE -> tideCountdown()
             mood == Mood.PARKED -> parkedCountdown()
             mood == Mood.FIELD -> fieldCountdown()
+            mood == Mood.STUDY -> studyCountdown()
             mood.start == null -> "✎"
             left >= 60 -> "${left / 60}h ${left % 60}m"
             else -> "${left}m"
@@ -641,6 +653,16 @@ private class RingView(
         val now = System.currentTimeMillis()
         val w = Field.today(context).firstOrNull { now >= it.start && now < it.end }
         if (w == null) { target = 0.4f; return "1h 48m" }
+        target = ((now - w.start).toFloat() / (w.end - w.start)).coerceIn(0f, 1f)
+        val left = ((w.end - now + 59_999) / 60_000).toInt()
+        return if (left >= 60) "${left / 60}h ${left % 60}m" else "${left}m"
+    }
+
+    /** Time left in today's study session; the ring fills as it goes. (A preview with none shows a sample.) */
+    private fun studyCountdown(): String {
+        val now = System.currentTimeMillis()
+        val w = Study.holding(context)
+        if (w == null) { target = 0.4f; return "36m" }
         target = ((now - w.start).toFloat() / (w.end - w.start)).coerceIn(0f, 1f)
         val left = ((w.end - now + 59_999) / 60_000).toInt()
         return if (left >= 60) "${left / 60}h ${left % 60}m" else "${left}m"
