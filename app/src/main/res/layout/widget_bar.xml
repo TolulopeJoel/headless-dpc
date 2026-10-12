@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The bar: one drawn image (NowBar draws it to the widget's size) under invisible tap zones. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/bar_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/bar_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY" />
+
+    <!-- Most states: the bar opens something; on the right, two round starts, or Stop / Review / Write. -->
+    <LinearLayout
+        android:id="@+id/bar_row"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal">
+        <FrameLayout android:id="@+id/bar_main" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
+        <FrameLayout android:id="@+id/bar_study" android:layout_width="44dp" android:layout_height="match_parent" android:visibility="gone" />
+        <FrameLayout android:id="@+id/bar_prep" android:layout_width="48dp" android:layout_height="match_parent" android:visibility="gone" />
+        <FrameLayout android:id="@+id/bar_action" android:layout_width="96dp" android:layout_height="match_parent" android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Study time: the head opens Now; under it Start study (wide) and Prep. NowBar sizes these to the drawing. -->
+    <LinearLayout
+        android:id="@+id/bar_studyrow"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="gone">
+        <FrameLayout android:id="@+id/bar_top" android:layout_width="match_parent" android:layout_height="70dp" />
+        <LinearLayout android:id="@+id/bar_buttons" android:layout_width="match_parent" android:layout_height="50dp" android:orientation="horizontal">
+            <FrameLayout android:id="@+id/bar_bigstudy" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
+            <FrameLayout android:id="@+id/bar_smallprep" android:layout_width="100dp" android:layout_height="match_parent" />
+        </LinearLayout>
+        <FrameLayout android:id="@+id/bar_rest" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+    </LinearLayout>
+</FrameLayout>
