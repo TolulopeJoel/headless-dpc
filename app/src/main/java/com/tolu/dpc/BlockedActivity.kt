@@ -60,9 +60,8 @@ class BlockedActivity : Activity() {
         val state = if (previewing) mood.asState() else real
         if (previewing) minuteOverride = ScheduleReceiver.previewMinute
         else if (real.test) minuteOverride = ScheduleReceiver.testMinute
-        val (skyTop, skyBottom) = mood.sky(minute())
-        window.statusBarColor = skyTop
-        window.navigationBarColor = skyBottom
+        window.statusBarColor = mood.top
+        window.navigationBarColor = mood.bottom
         if (mood.lightBackground) {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
@@ -80,27 +79,31 @@ class BlockedActivity : Activity() {
         }
 
         // One of each: the ring says when, the title says no, Àṣàrò says why, one button says what instead.
-        ring = RingView(this, mood, display, strong, ringLabel(previewing)) { minute() }
-        val title = text("Not now, Tolu.", 36f, mood.ink, display).apply { setPadding(0, dp(30), 0, 0) }
+        // The app it stopped, when that's known (a soft lock, a parked app; a tide names it under the countdown).
+        // Android's own block doesn't say which app was tapped.
+        val app = intent.getStringExtra(EXTRA_APP) ?: when (mood) {
+            Mood.PARKED -> "Àṣàrò dev"
+            else -> null
+        }
+        ring = RingView(this, mood, display, strong, ringLabel(previewing), app) { minute() }
+        val eyebrow = text(mood.eyebrow, 12f, mood.soft, strong).apply { letterSpacing = 0.14f; setPadding(0, 0, 0, dp(14)) }
+        val title = text("Not now, Tolu.", 32f, mood.ink, display).apply { setPadding(0, dp(26), 0, 0) }
 
         // Under the title, the verse for this part of the day (the ring already says until when).
         val verse = TextView(this).apply {
             val words = "“${mood.verse}”"
-            val ref = "  ${mood.reference}"
+            val ref = "\n" + mood.reference.uppercase()
             text = android.text.SpannableStringBuilder(words + ref).apply {
-                // Where the sun sits behind the words (dawn and dusk), the reference is white, not a warm colour lost in the glow.
-                val refColour = if (mood == Mood.MORNING || mood == Mood.EVENING) 0xFFFFFFFF.toInt() else mood.accent
-                setSpan(android.text.style.ForegroundColorSpan(refColour), words.length, length, 0)
+                setSpan(android.text.style.RelativeSizeSpan(0.68f), words.length, length, 0)
+                if (android.os.Build.VERSION.SDK_INT >= 28) setSpan(android.text.style.TypefaceSpan(strong), words.length, length, 0)
             }
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16.5f)
             setTextColor(mood.soft)
-            typeface = body
+            typeface = resources.getFont(R.font.fraunces_italic)
             gravity = Gravity.CENTER
             setLineSpacing(0f, 1.3f)
             setPadding(0, dp(14), 0, 0)
             maxWidth = dp(300)
-            // A soft shadow keeps it readable over any sky, without a box.
-            if (!mood.lightBackground) setShadowLayer(dp(6).toFloat(), 0f, dp(1).toFloat(), 0x80000000.toInt())
         }
 
         // One button for the good thing; everything else is a quiet link.
@@ -121,6 +124,7 @@ class BlockedActivity : Activity() {
             })
         }
 
+        column.addView(eyebrow, wrap())
         column.addView(ring, LinearLayout.LayoutParams(dp(200), dp(200)))
         column.addView(title)
         column.addView(verse, wrap())
@@ -128,12 +132,12 @@ class BlockedActivity : Activity() {
         if (links.childCount > 0) column.addView(links, wrap().apply { topMargin = dp(6) })
 
         root = FrameLayout(this)
-        root.addView(SkyView(this, mood) { minute() })
+        root.setBackgroundColor(mood.top)
         root.addView(column, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         setContentView(root)
 
         // Everything eases up into place, one after another, with a soft tap to say "I stopped you".
-        val order = listOfNotNull(ring, title, verse, primary, links.takeIf { it.childCount > 0 })
+        val order = listOfNotNull(eyebrow, ring, title, verse, primary, links.takeIf { it.childCount > 0 })
         order.forEachIndexed { i, v ->
             v.alpha = 0f
             v.translationY = dp(16).toFloat()
@@ -146,6 +150,13 @@ class BlockedActivity : Activity() {
     override fun onResume() {
         super.onResume()
         tick()
+    }
+
+    /** Opened again while still alive (left with the home button): rebuild, so the mood and app are today's, not stale. */
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        recreate()
     }
 
     override fun onPause() {
@@ -265,6 +276,7 @@ class BlockedActivity : Activity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     companion object {
+        const val EXTRA_APP = "app"
         private const val ASARO = "com.asaro.meditation"
     }
 }
@@ -293,7 +305,7 @@ internal enum class Mood(
     val primary: Action, val secondary: Action?,
 ) {
     NIGHT(
-        "NIGHT", 0xFF050A14.toInt(), 0xFF17263F.toInt(),
+        "NIGHT", 0xFF101A2E.toInt(), 0xFF101A2E.toInt(),
         0xFFEFE6D8.toInt(), 0xB8EFE6D8.toInt(), 0xFFE8D6A0.toInt(), 0xFF17263F.toInt(), 0x1FFFFFFF,
         lightBackground = false,
         start = 20 * 60, end = 5 * 60, until = "until 5AM",
@@ -301,24 +313,24 @@ internal enum class Mood(
         primary = Action.GOODNIGHT, secondary = Action.ALARM,
     ),
     MORNING(
-        "BIBLE HOUR", 0xFF17263F.toInt(), 0xFFE18F43.toInt(),
-        0xFFFFFFFF.toInt(), 0xD9FFFFFF.toInt(), 0xFFFFE2B8.toInt(), 0xFF17263F.toInt(), 0x33FFFFFF,
-        lightBackground = false,
+        "BIBLE HOUR", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFFFFF.toInt(), 0x1A17263F,
+        lightBackground = true,
         start = 5 * 60, end = 7 * 60, until = "until 7AM",
         verse = "Your word is a lamp to my foot, and a light for my path.", reference = "Psalm 119:105",
         primary = Action.JW_LIBRARY, secondary = Action.WRITE,
     ),
     EVENING(
-        "EVENING", 0xFF17263F.toInt(), 0xFF6E3448.toInt(),
-        0xFFFFFFFF.toInt(), 0xCCFFFFFF.toInt(), 0xFFE18F43.toInt(), 0xFF17263F.toInt(), 0x26FFFFFF,
-        lightBackground = false,
+        "EVENING", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFFFFF.toInt(), 0x1A17263F,
+        lightBackground = true,
         start = 17 * 60 + 30, end = 7 * 60, until = "until 7AM",
         verse = "For everything there is an appointed time.", reference = "Ecclesiastes 3:1",
         primary = Action.HOME, secondary = null,
     ),
     ENTRY(
-        "BEFORE ANYTHING", 0xFFF6EFE3.toInt(), 0xFFE9DBC5.toInt(),
-        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFF8EE.toInt(), 0x1A17263F,
+        "BEFORE ANYTHING", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFFFFF.toInt(), 0x1A17263F,
         lightBackground = true,
         start = null, end = null, until = "then it opens",
         verse = "Man must live, not on bread alone, but on every word coming from Jehovah’s mouth.", reference = "Matthew 4:4",
@@ -326,17 +338,17 @@ internal enum class Mood(
     ),
     /** The tide is out: the drift apps are locked for a while after a long unbroken session. */
     TIDE(
-        "LOW TIDE", 0xFF051C24.toInt(), 0xFF0E4652.toInt(),
-        0xFFFFFFFF.toInt(), 0xCCFFFFFF.toInt(), 0xFF8FE3D6.toInt(), 0xFF051C24.toInt(), 0x26FFFFFF,
-        lightBackground = false,
+        "LOW TIDE", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFF0E8A80.toInt(), 0xFFFFFFFF.toInt(), 0x1A17263F,
+        lightBackground = true,
         start = null, end = null, until = "till the tide's back",
         verse = "Then your peace would become just like a river, and your righteousness like the waves of the sea.", reference = "Isaiah 48:18",
         primary = Action.JW_LIBRARY, secondary = Action.CALL,
     ),
     /** A field session from the calendar: the ministry first, the laptop offline. */
     FIELD(
-        "FIELD MORNING", 0xFFF3F6EC.toInt(), 0xFFDCE6CF.toInt(),
-        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFF4E7A3A.toInt(), 0xFFF7FAF1.toInt(), 0x1A17263F,
+        "FIELD MORNING", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFF1BAF7A.toInt(), 0xFFFFFFFF.toInt(), 0x1A17263F,
         lightBackground = true,
         start = null, end = null, until = "of field time left",
         verse = "How beautiful on the mountains are the feet of the one bringing good news.", reference = "Isaiah 52:7",
@@ -344,8 +356,8 @@ internal enum class Mood(
     ),
     /** A study session from the calendar: personal study, JW Library open. */
     STUDY(
-        "STUDY", 0xFFF6EFE3.toInt(), 0xFFE9DBC5.toInt(),
-        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFF8EE.toInt(), 0x1A17263F,
+        "STUDY", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFEB6834.toInt(), 0xFFFFFFFF.toInt(), 0x1A17263F,
         lightBackground = true,
         start = null, end = null, until = "of study time left",
         verse = "Keep searching for it as for hidden treasures.", reference = "Proverbs 2:4",
@@ -353,8 +365,8 @@ internal enum class Mood(
     ),
     /** An app parked until a date: the Àṣàrò dev build, until 15 Nov. */
     PARKED(
-        "PARKED", 0xFFFBF6EC.toInt(), 0xFFEEDFC6.toInt(),
-        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFF8EE.toInt(), 0x1A17263F,
+        "PARKED", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFFC76A24.toInt(), 0xFFFFFFFF.toInt(), 0x1A17263F,
         lightBackground = true,
         start = null, end = null, until = "until 15 Nov",
         verse = "The plans of the diligent surely lead to success.", reference = "Proverbs 21:5",
@@ -426,163 +438,10 @@ internal enum class Mood(
     }
 }
 
-/**
- * The background, animated: twinkling stars, a crescent moon and the odd shooting star at night; a sun that rises from
- * 05:00 to 07:00 and sinks through the evening, placed by the clock; ruled paper for the entry.
- */
-private class SkyView(context: Context, private val mood: Mood, private val minute: () -> Int) : View(context) {
-    private val d = resources.displayMetrics.density
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val star = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
-    private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = d }
-    private val streak = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND; strokeWidth = 2.2f * d }
-    private val rnd = Random(20260930)
-    // x, y, size, twinkle phase, twinkle speed
-    private val stars = List(110) { floatArrayOf(rnd.nextFloat(), rnd.nextFloat(), rnd.nextFloat(), rnd.nextFloat() * 6.3f, 0.6f + rnd.nextFloat() * 1.6f) }
-    private val started = System.nanoTime()
-    private var shootAt = 2.5f
-    private var shootFrom = floatArrayOf(0.2f, 0.08f)
-    private val moon = Path()
-    private val wave = Path()
-
-    private fun moonPhase() = SkyArt.moonPhase()
-
-    private fun moonPath(cx: Float, cy: Float, r: Float, phase: Float) = SkyArt.moonPath(cx, cy, r, phase, moon)
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        paintSky(h)
-    }
-
-    /** The gradient itself follows the clock at dawn and dusk; night and paper keep their own. */
-    private fun paintSky(h: Int) {
-        val (top, bottom) = mood.sky(minute())
-        paint.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), top, bottom, Shader.TileMode.CLAMP)
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        val t = (System.nanoTime() - started) / 1e9f
-        if (mood == Mood.MORNING || mood == Mood.EVENING) paintSky(height)
-        canvas.drawRect(0f, 0f, w, h, paint)
-        when (mood) {
-            Mood.NIGHT -> night(canvas, w, h, t)
-            Mood.MORNING -> sun(canvas, w, h, rising = true)
-            Mood.EVENING -> sun(canvas, w, h, rising = false)
-            Mood.ENTRY, Mood.STUDY -> paper(canvas, w, h)
-            Mood.TIDE -> sea(canvas, w, h, t)
-            Mood.PARKED, Mood.FIELD -> daylight(canvas, w, h)
-        }
-        // Only the night sky moves every frame; the sun is redrawn now and then as the clock moves it.
-        if (mood == Mood.NIGHT || mood == Mood.TIDE) postInvalidateOnAnimation() else postInvalidateDelayed(20_000)
-    }
-
-    private fun night(canvas: Canvas, w: Float, h: Float, t: Float) {
-        // Stars in the sky above the words and along the edges only, so none ever sits on a letter.
-        stars.forEach { s ->
-            val x = s[0]
-            val y = s[1]
-            val clear = y < 0.14f || ((x < 0.08f || x > 0.92f) && y < 0.85f)
-            if (!clear) return@forEach
-            val twinkle = 0.55f + 0.45f * sin(t * s[4] + s[3])
-            star.alpha = (255 * twinkle * (0.35f + 0.65f * s[2])).toInt().coerceIn(20, 255)
-            canvas.drawCircle(x * w, y * h, (0.6f + 1.5f * s[2]) * d, star)
-        }
-        // A crescent moon, high on the right: a lit disc with the sky's own colour laid over most of it.
-        val mx = w * 0.82f
-        val my = h * 0.085f
-        val mr = 22 * d
-        val phase = moonPhase()
-        val lit = (1 - cos(2 * PI * phase).toFloat()) / 2
-        glow.shader = RadialGradient(mx, my, mr * (1.6f + 2.2f * lit), 0x33E8D6A0, 0x00E8D6A0, Shader.TileMode.CLAMP)
-        canvas.drawCircle(mx, my, mr * (1.6f + 2.2f * lit), glow)
-        glow.shader = null
-        glow.color = 0x1FEFE2B8
-        canvas.drawCircle(mx, my, mr, glow)
-        glow.color = 0xFFEFE2B8.toInt()
-        canvas.drawPath(moonPath(mx, my, mr, phase), glow)
-        // Now and then, a shooting star across the top.
-        val age = t - shootAt
-        if (age in 0f..0.9f) {
-            val p = age / 0.9f
-            val sx = shootFrom[0] * w + p * w * 0.35f
-            val sy = shootFrom[1] * h + p * h * 0.06f
-            val tail = 70 * d
-            streak.shader = LinearGradient(sx, sy, sx - tail, sy - tail * 0.17f, 0xFFFFFFFF.toInt(), 0x00FFFFFF, Shader.TileMode.CLAMP)
-            streak.alpha = (255 * sin(p * PI).toFloat()).toInt()
-            canvas.drawLine(sx, sy, sx - tail, sy - tail * 0.17f, streak)
-        } else if (age > 0.9f) {
-            shootAt = t + 5f + rnd.nextFloat() * 7f
-            shootFrom = floatArrayOf(0.05f + rnd.nextFloat() * 0.45f, 0.03f + rnd.nextFloat() * 0.07f)
-        }
-    }
-
-    /** The sun sits by the clock: rising from below the screen at 05:00 to low in the sky at 07:00, or sinking from 17:30. */
-    private fun sun(canvas: Canvas, w: Float, h: Float, rising: Boolean) {
-        val p = mood.skyProgress(minute())
-        val up = if (rising) p else 1f - p
-        val cx = w * 0.5f
-        val cy = h * (1.14f - 0.20f * up)
-        val core = if (rising) 0xFFFFD28A.toInt() else 0xFFF3A25B.toInt()
-        glow.shader = RadialGradient(cx, cy, w * 0.9f, intArrayOf(0x66FFD28A, 0x22FFB36B, 0x00FFB36B), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
-        canvas.drawCircle(cx, cy, w * 0.9f, glow)
-        glow.shader = RadialGradient(cx, cy, w * 0.2f, intArrayOf(core, core, 0x00FFFFFF), floatArrayOf(0f, 0.72f, 1f), Shader.TileMode.CLAMP)
-        canvas.drawCircle(cx, cy, w * 0.2f, glow)
-        glow.shader = null
-    }
-
-    /** Three layers of sea, rolling slowly; the water rises as the tide comes back. */
-    private fun sea(canvas: Canvas, w: Float, h: Float, t: Float) {
-        val (start, until) = ColourKeeper.tideWindow(context)
-        val now = System.currentTimeMillis()
-        val back = if (until > now && until > start) ((now - start).toFloat() / (until - start)).coerceIn(0f, 1f) else 0.4f
-        val level = h * (0.93f - 0.22f * back)
-        val layers = listOf(
-            Triple(0x5538B2AC, 16f, 0.35f),
-            Triple(0x6628908F, 12f, -0.5f),
-            Triple(0x99125E68.toInt(), 9f, 0.7f),
-        )
-        layers.forEachIndexed { i, (colour, amp, speed) ->
-            wave.reset()
-            val top = level + i * 14 * d
-            wave.moveTo(0f, h)
-            var x = 0f
-            while (x <= w + 8) {
-                val y = top + amp * d * sin(x / w * 2.4f * PI.toFloat() + t * speed + i * 1.7f)
-                wave.lineTo(x, y)
-                x += 8f
-            }
-            wave.lineTo(w, h)
-            wave.close()
-            glow.color = colour
-            canvas.drawPath(wave, glow)
-        }
-    }
-
-    /** Daylight: a soft sun in the corner, for a parked app in the day. */
-    private fun daylight(canvas: Canvas, w: Float, h: Float) {
-        glow.shader = RadialGradient(w * 0.88f, h * 0.06f, w * 0.8f, intArrayOf(0x55FFD28A, 0x18FFD28A, 0x00FFD28A), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
-        canvas.drawCircle(w * 0.88f, h * 0.06f, w * 0.8f, glow)
-        glow.shader = null
-    }
-
-    /** Àṣàrò's notebook: faint ruled lines and a margin. */
-    private fun paper(canvas: Canvas, w: Float, h: Float) {
-        line.color = 0x1417263F
-        var y = 120 * d
-        while (y < h) {
-            canvas.drawLine(0f, y, w, y, line)
-            y += 34 * d
-        }
-        line.color = 0x33C76A24
-        canvas.drawLine(26 * d, 56 * d, 26 * d, h, line)
-    }
-}
-
 /** The ring: fills with the share of the lock that has passed, with hour ticks, a glowing tip, and the countdown. */
 private class RingView(
-    context: Context, private val mood: Mood, display: Typeface, strong: Typeface, private val label: String, private val minute: () -> Int,
+    context: Context, private val mood: Mood, display: Typeface, strong: Typeface, private val label: String, private val app: String?,
+    private val minute: () -> Int,
 ) : View(context) {
     private val d = resources.displayMetrics.density
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 7 * d; color = mood.track }
@@ -716,5 +575,12 @@ private class RingView(
         val labelWide = small.measureText(label.uppercase())
         if (labelWide > room) small.textSize = smallSize * room / labelWide
         canvas.drawText(label.uppercase(), cx, cy + big.textSize * 0.2f + 26 * d, small)
+        // The app it stopped, above the countdown, when known.
+        app?.let {
+            val was = small.letterSpacing
+            small.letterSpacing = 0f; small.textSize = smallSize * 1.25f
+            canvas.drawText(it, cx, cy - big.textSize * 0.62f, small)
+            small.letterSpacing = was
+        }
     }
 }

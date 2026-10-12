@@ -1,17 +1,10 @@
 package com.tolu.dpc
 
 import android.app.Activity
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.util.TypedValue
-import android.view.Gravity
-import android.widget.EditText
+import android.view.View
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -24,126 +17,86 @@ import java.util.Locale
  */
 class FieldPassActivity : Activity() {
 
-    private lateinit var reason: EditText
+    private var kind: String? = null
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val mood = Mood.FIELD
-        window.statusBarColor = mood.top
-        window.navigationBarColor = mood.bottom
-        @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+    override fun onResume() {
+        super.onResume()
+        build()
+    }
 
-        val display = resources.getFont(R.font.fraunces_black)
-        val body = resources.getFont(R.font.work_sans)
-        val strong = resources.getFont(R.font.work_sans_semibold)
+    private fun build() {
+        val ui = Ui(this)
+        val green = Kind.FIELD.colour
         val (witnessOpen, pulledOpen) = Field.passesOpen(this)
-        val ends = Field.endsAt(this)?.let { SimpleDateFormat("HH:mm", Locale.UK).format(Date(it)) }
+        val ends = Field.endsAt(this)?.let { NowActivity.hhmm(it) }
+        if (kind == null) kind = if (pulledOpen) "pulled back" else if (witnessOpen) "witnessing" else null
 
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(28), dp(56), dp(28), dp(40))
-        }
-        column.addView(text("FIELD PASS", 13f, mood.accent, strong).apply { letterSpacing = 0.12f })
-        column.addView(text("Can't go out this morning?", 30f, mood.ink, display).apply { setPadding(0, dp(10), 0, 0) })
-
+        val content = ui.column()
+        content.addView(ui.kick("Field pass", green))
+        content.addView(ui.big("Can't go out this morning?"))
+        val footer = ui.footer()
         when {
-            Field.passedToday(this) -> column.addView(text("You've taken today's pass. The hotspot's back for the rest of today's field time.", 16f, mood.soft, body).pad())
-            ends == null -> column.addView(text("There's no field session left today.", 16f, mood.soft, body).pad())
+            Field.passedToday(this) -> content.addView(ui.sub("Today's pass is taken. The hotspot's back for the rest of today's field time.", 8))
+            ends == null -> content.addView(ui.sub("There's no field session left today.", 8))
             else -> {
-                column.addView(text(
-                    "The hotspot comes back for the rest of today's field time (until $ends). " +
-                        "First, the two hours: public witnessing between 06:30 and 10:00, shown by your phone being away from home. " +
-                        "Or, if you went out and work pulled you back, say so.",
-                    16f, mood.soft, body).pad())
-
-                reason = EditText(this).apply {
-                    hint = "What's the emergency? In your own words"
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                    setTextColor(mood.ink)
-                    setHintTextColor(mood.soft)
-                    typeface = body
-                    minLines = 2
-                    setPadding(dp(16), dp(14), dp(16), dp(14))
-                    background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setStroke(dp(2), mood.soft) }
+                content.addView(ui.sub("The hotspot comes back till $ends."))
+                // The two ways in, each with what it needs.
+                val away = Away.minutesAwayThisMorning(this)
+                content.addView(option(ui, "witnessing", "2 h public witnessing", witnessOpen,
+                    ui.bar(away / Away.NEEDED_MINUTES.toFloat(), green, 5, 8),
+                    ui.ends("away ${away / 60} h ${away % 60} m", "of 2 h · 06:30–10:00")))
+                content.addView(option(ui, "pulled back", "Went out, work pulled me back", pulledOpen,
+                    ui.ends(if (pulledOpen) "you've been out" else "needs time away from home", "since 30 m before the session")))
+                val reason = ui.input("What's the emergency?")
+                content.addView(reason)
+                val take = ui.button("Take the pass", green, 0xFFFFFFFF.toInt()) {
+                    val why = reason.text.toString().trim()
+                    val open = if (kind == "witnessing") witnessOpen else pulledOpen
+                    if (kind == null || !open) return@button
+                    if (why.length < 8) { reason.error = "Say what it is, in a few words"; return@button }
+                    Field.takePass(this, kind!!, why)
+                    ScheduleReceiver.enforce(this)
+                    Toast.makeText(this, "Pass taken. The hotspot's back.", Toast.LENGTH_LONG).show()
+                    finish()
                 }
-                column.addView(reason, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(22) })
-
-                val witness = pill("I did 2 hours of public witnessing", strong, mood, filled = true, enabled = witnessOpen) { take("witnessing") }
-                val pulled = pill("I went out, and work pulled me back", strong, mood, filled = false, enabled = pulledOpen) { take("pulled back") }
-                column.addView(witness, full().apply { topMargin = dp(22) })
-                if (!witnessOpen) {
-                    val away = Away.minutesAwayThisMorning(this)
-                    val note = if (!Away.knowsHome(this)) "Your phone doesn't know where home is yet. It learns it during the Bible hour."
-                        else "Away from home this morning: ${away / 60}h ${away % 60}m of 2h (06:30–10:00)."
-                    column.addView(text(note, 13f, mood.soft, body).apply { setPadding(0, dp(6), 0, 0) })
-                }
-                column.addView(pulled, full().apply { topMargin = dp(12) })
-                if (!pulledOpen) column.addView(text("Opens once the field session has begun and your phone has been away from home during it.",
-                    13f, mood.soft, body).apply { setPadding(0, dp(6), 0, 0) })
-
-                // Both wait for a reason.
-                val sync = { val ok = reason.text.trim().length >= 8; witness.alpha = if (witnessOpen && ok) 1f else 0.4f; pulled.alpha = if (pulledOpen && ok) 1f else 0.4f }
+                val sync = { take.alpha = if (kind != null && reason.text.trim().length >= 8) 1f else 0.45f }
                 reason.addTextChangedListener(object : TextWatcher {
                     override fun afterTextChanged(s: Editable?) = sync()
                     override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                     override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 })
                 sync()
+                val week = Field.passesThisWeek(this)
+                footer.addView(ui.text("This week  ${week.size}  pass${if (week.size == 1) "" else "es"}", 12.5f, ui.body, ui.ink2).apply {
+                    gravity = android.view.Gravity.CENTER; setPadding(0, 0, 0, ui.dp(4))
+                })
+                footer.addView(take)
             }
         }
-
-        // This week, as it'll read on Sunday.
+        // This week's list, as it'll read on Sunday.
         val week = Field.passesThisWeek(this)
-        column.addView(text("THIS WEEK", 13f, mood.accent, strong).apply { letterSpacing = 0.12f; setPadding(0, dp(36), 0, 0) })
-        column.addView(text(
-            if (week.isEmpty()) "No passes." else week.joinToString("\n") { (at, kind, why) ->
-                "${SimpleDateFormat("EEE HH:mm", Locale.UK).format(Date(at))} · ${if (kind == "witnessing") "2 h public witnessing" else "went out, pulled back"} · $why"
-            }, 15f, mood.ink, body).apply { setPadding(0, dp(8), 0, 0); setLineSpacing(0f, 1.3f) })
-
-        setContentView(ScrollView(this).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mood.top, mood.bottom))
-            addView(column)
-        })
-    }
-
-    private fun take(kind: String) {
-        val (witnessOpen, pulledOpen) = Field.passesOpen(this)
-        val open = if (kind == "witnessing") witnessOpen else pulledOpen
-        val why = reason.text.toString().trim()
-        if (!open) return
-        if (why.length < 8) {
-            reason.error = "Say what it is, in a few words"
-            return
-        }
-        Field.takePass(this, kind, why)
-        ScheduleReceiver.enforce(this)
-        Toast.makeText(this, "Pass taken. The hotspot's back.", Toast.LENGTH_LONG).show()
-        finish()
-    }
-
-    private fun pill(label: String, face: Typeface, mood: Mood, filled: Boolean, enabled: Boolean, onClick: () -> Unit) =
-        text(label, 16f, if (filled) mood.onAccent else mood.ink, face).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(20), dp(15), dp(20), dp(15))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(30).toFloat()
-                if (filled) setColor(mood.accent) else setStroke(dp(2), mood.ink)
+        if (week.isNotEmpty()) {
+            content.addView(ui.kick("This week", top = 22))
+            week.forEach { (at, k, why) ->
+                content.addView(ui.text("${SimpleDateFormat("EEE HH:mm", Locale.UK).format(Date(at))} · ${if (k == "witnessing") "2 h witnessing" else "pulled back"} · $why", 13.5f, ui.body, ui.ink, 6))
             }
-            alpha = if (enabled) 1f else 0.4f
-            setOnClickListener { onClick() }
         }
-
-    private fun TextView.pad() = apply { setPadding(0, dp(12), 0, 0); setLineSpacing(0f, 1.3f) }
-
-    private fun full() = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-
-    private fun text(value: String, sp: Float, color: Int, face: Typeface) = TextView(this).apply {
-        text = value
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
-        setTextColor(color)
-        typeface = face
+        setContentView(ui.page(content, footer))
     }
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    /** One way in: a card, outlined in green when chosen, faded when not met yet. */
+    private fun option(ui: Ui, key: String, title: String, open: Boolean, vararg detail: View) = ui.card(
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(ui.text(title, 14f, ui.strong), LinearLayout.LayoutParams(0, -2, 1f))
+            if (open) addView(ui.text("✓", 11f, ui.strong, ui.good).apply {
+                gravity = android.view.Gravity.CENTER; background = ui.rounded(ui.goodBg, 999)
+            }, LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)))
+        }, *detail, pad = 13,
+    ).apply {
+        if (open && kind == key) background = ui.rounded(ui.card, 16, Kind.FIELD.colour, 1.5f)
+        alpha = if (open) 1f else 0.55f
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(12) }
+        if (open) setOnClickListener { kind = key; build() }
+    }
 }

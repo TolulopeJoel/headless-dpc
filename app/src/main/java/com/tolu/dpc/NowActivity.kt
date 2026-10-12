@@ -2,112 +2,159 @@ package com.tolu.dpc
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.UserManager
-import android.util.TypedValue
-import android.view.Gravity
+import android.view.View
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-/** Behind the ring widget: what's going on right now, until when, what's resting, and what's next today. */
+/**
+ * Behind the ring widget: what's going on right now and till when, what's resting, what's next today, the one useful
+ * button, and the two starts: personal study and meeting prep (only he knows when he's studying, so he says so).
+ */
 class NowActivity : Activity() {
 
-    private val colours = mapOf(
-        "free" to 0xFF8E1B2C.toInt(), "field" to 0xFF2F5326.toInt(), "study" to 0xFF7A4012.toInt(),
-        "work" to 0xFF1F4E79.toInt(), "bank" to 0xFF3D2A66.toInt(), "entry" to 0xFF8C6A44.toInt(),
-        "morning" to 0xFF3F3A4A.toInt(), "night" to 0xFF0E1626.toInt(),
-    )
-    private val names = mapOf(
-        "free" to "Free time", "field" to "Field service", "study" to "Study", "work" to "Work", "bank" to "Banks",
-        "entry" to "Today's entry first", "morning" to "Bible hour", "night" to "Night · rest",
-    )
+    override fun onResume() {
+        super.onResume()
+        build()
+    }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    private fun build() {
         val state = ScheduleReceiver.currentState(this)
         val mode = ModeWallpaper.modeOf(this, state)
-        val bg = colours[mode] ?: 0xFF17263F.toInt()
-        window.statusBarColor = bg
-        window.navigationBarColor = bg
-        val display = resources.getFont(R.font.fraunces_black)
-        val body = resources.getFont(R.font.work_sans)
-        val strong = resources.getFont(R.font.work_sans_semibold)
-        val hhmm = { t: Long -> SimpleDateFormat("HH:mm", Locale.UK).format(Date(t)) }
+        val ui = Ui(this, dark = mode == "night")
+        val colour = COLOURS[mode] ?: ui.ink
         val now = System.currentTimeMillis()
         val minute = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
         val todayAt = { m: Int -> startOfDay(0) + m * 60_000L }
 
-        val until: String = when (mode) {
-            "field" -> Field.endsAt(this)?.let { "till ${hhmm(it)}" }
-            "study" -> Study.holding(this)?.let { "till ${hhmm(it.end)}" }
-            "work" -> WorkTime.holding(this)?.let { "till ${hhmm(it.end)}" }
-            "bank" -> BankTime.holding(this)?.let { "till ${hhmm(it.end)}" }
-            "night" -> "till 05:00"
-            "morning" -> "till 07:00"
-            "entry" -> "till you've written today's entry"
+        // This stretch of the day: from when to when.
+        val window: SessionWindow? = when (mode) {
+            "field" -> Field.holding(this)?.let { SessionWindow(it.start, Field.endsAt(this) ?: it.end) }
+            "study" -> Study.holding(this)
+            "work" -> WorkTime.holding(this)
+            "bank" -> BankTime.holding(this)
+            "morning" -> SessionWindow(todayAt(5 * 60), todayAt(7 * 60))
+            "night" -> if (minute >= 12 * 60) SessionWindow(todayAt(20 * 60), todayAt(29 * 60)) else SessionWindow(todayAt(-4 * 60), todayAt(5 * 60))
+            "free" -> freeWindow(now)
             else -> null
-        } ?: ""
-        val resting = when (mode) {
-            "field" -> "Fun apps rest and the hotspot is off, so the laptop has no internet. Chrome keeps to jw.org."
-            "study" -> "Fun apps rest. Chrome keeps to jw.org. The hotspot stays on."
-            "work", "bank" -> "Your phone is open. On the laptop, your side projects rest."
-            "night" -> "Everything rests except calls, the clock and your tools. JW Library and Àṣàrò are open until 22:00."
-            "morning" -> "Only JW Library, Àṣàrò, jw.org (and Google search) and Field Service are open."
-            "entry" -> "Everything waits for two answers in today's Àṣàrò entry."
-            else -> if (state.phase == ScheduleReceiver.Phase.NIGHT)
-                "Free on the laptop until it goes offline. On your phone the night has begun: JW Library and Àṣàrò (until 22:00), calls and your tools."
-            else "Nothing's on. Your side projects are open on the laptop."
         }
+
+        val content = ui.column()
+        content.addView(ui.kick("Now"))
+        content.addView(ui.big("■ " + (NAMES[mode] ?: mode)).apply {
+            text = android.text.SpannableString(text).apply { setSpan(android.text.style.ForegroundColorSpan(if (ui.dark) 0xFFE8D6A0.toInt() else colour), 0, 1, 0)
+                setSpan(android.text.style.RelativeSizeSpan(0.45f), 0, 1, 0) }
+        })
+        if (window != null) {
+            val frac = ((now - window.start).toFloat() / (window.end - window.start)).coerceIn(0f, 1f)
+            content.addView(ui.bar(frac, if (ui.dark) 0xFFE8D6A0.toInt() else colour))
+            content.addView(ui.ends("till ${hhmm(window.end)}", left(window.end - now)))
+        } else if (mode == "entry") content.addView(ui.sub("till you've written today's entry"))
+
+        // What's resting.
         val tethering = (getSystemService(USER_SERVICE) as UserManager).hasUserRestriction(UserManager.DISALLOW_CONFIG_TETHERING)
-        val hotspot = if (tethering) "Hotspot: off" else "Hotspot: allowed"
-
-        // What's next today, from the four kinds (the typical week fills unplanned days).
-        val ahead = buildList {
-            Field.today(this@NowActivity).forEach { add(Triple(it.start, it.end, "Field service")) }
-            Study.today(this@NowActivity).forEach { add(Triple(it.start, it.end, "Study")) }
-            WorkTime.today(this@NowActivity).forEach { add(Triple(it.start, it.end, "Work")) }
-            BankTime.today(this@NowActivity).forEach { add(Triple(it.start, it.end, "Banks")) }
-            if (minute < ScheduleReceiver.deviceRulesFrom()) add(Triple(todayAt(ScheduleReceiver.deviceRulesFrom()), todayAt(24 * 60), "Night: the laptop goes offline"))
-        }.filter { it.first > now }.sortedBy { it.first }.take(4)
-
-        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(28), dp(60), dp(28), dp(40)) }
-        fun text(s: String, sp: Float, face: Typeface, alpha: Float = 1f, top: Int = 0) = TextView(this).apply {
-            text = s; setTextSize(TypedValue.COMPLEX_UNIT_SP, sp); typeface = face; setTextColor(0xFFFFFFFF.toInt())
-            this.alpha = alpha; setPadding(0, dp(top), 0, 0); setLineSpacing(0f, 1.25f)
+        val rules: List<Pair<String, String>> = when (mode) {
+            "morning" -> listOf("Phone" to "JW Library, Àṣàrò, Field Service", "Chrome" to "jw.org + search")
+            "entry" -> listOf("Phone" to "waits for today's entry")
+            "field", "study" -> listOf("Fun apps" to "resting", "Chrome" to "jw.org only")
+            "work", "bank" -> listOf("Phone" to "open", "Side projects" to "resting")
+            "night" -> listOf("Phone" to "calls, clock, tools", "JW Library, Àṣàrò" to "till 22:00")
+            else -> if (state.phase == ScheduleReceiver.Phase.NIGHT) listOf("Phone" to "calls, clock, tools", "Side projects" to "open till offline")
+                else listOf("Phone" to "open", "Side projects" to "open")
         }
-        column.addView(text("NOW", 13f, strong, 0.75f).apply { letterSpacing = 0.15f })
-        column.addView(text(names[mode] ?: mode, 34f, display, top = 6))
-        if (until.isNotEmpty()) column.addView(text(until, 18f, strong, 0.9f, 4))
-        column.addView(text(resting, 16f, body, 0.9f, 18))
-        column.addView(text(hotspot + (if (Field.passedToday(this)) "  ·  Field pass taken today" else ""), 14f, strong, 0.75f, 14))
-        column.addView(text("NEXT TODAY", 13f, strong, 0.75f, 30).apply { letterSpacing = 0.15f })
-        column.addView(text(if (ahead.isEmpty()) "Nothing else today." else ahead.joinToString("\n") { "${hhmm(it.first)}  ${it.third}" }, 16f, body, top = 6))
+        content.addView(ui.gap(8))
+        rules.forEach { (k, v) -> content.addView(ui.row(k, ui.text(v, 12.5f, ui.body, ui.ink2).apply { gravity = android.view.Gravity.END; maxWidth = ui.dp(170) })) }
+        content.addView(ui.row("Hotspot", ui.pill(if (tethering) "off" else "on", !tethering)))
+        if (Field.passedToday(this)) content.addView(ui.row("Field pass", ui.pill("taken", true)))
 
-        // The one useful button for the moment.
-        val action: Pair<String, () -> Unit>? = when (mode) {
-            "field" -> "Can't go out? Field pass" to { startActivity(Intent(this, FieldPassActivity::class.java)) }
-            "entry" -> "Write today's entry" to { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage("com.asaro.meditation").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            "morning", "study" -> "Open JW Library" to { packageManager.getLaunchIntentForPackage("org.jw.jwlibrary.mobile")?.let { startActivity(it) }; Unit }
+        // A session he's logging, if one is running.
+        Logbook.running(this)?.let { (kind, since) ->
+            content.addView(ui.card(
+                ui.kick(if (kind == Kind.STUDY) "Studying" else "Meeting prep", kind.colour),
+                ui.text(left(now - since, suffix = false), 24f, ui.display, ui.ink, 2),
+                ui.sub("since ${hhmm(since)}"),
+            ).apply { layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(14) }; setOnClickListener { openSession() } })
+        }
+
+        // Next today.
+        val ahead = buildList {
+            Field.today(this@NowActivity).forEach { add(Triple(it.start, "Field service", Kind.FIELD.colour)) }
+            Study.today(this@NowActivity).forEach { add(Triple(it.start, "Study", Kind.STUDY.colour)) }
+            WorkTime.today(this@NowActivity).forEach { add(Triple(it.start, "Work", Kind.WORK.colour)) }
+            BankTime.today(this@NowActivity).forEach { add(Triple(it.start, "Kowane", Kind.BANK.colour)) }
+            if (minute < Ask.REVIEW_AT) add(Triple(todayAt(Ask.REVIEW_AT), "Review the day", ui.ink))
+            if (minute < ScheduleReceiver.deviceRulesFrom()) add(Triple(todayAt(ScheduleReceiver.deviceRulesFrom()), "Laptop offline", ui.ink))
+        }.filter { it.first > now }.sortedBy { it.first }.take(4)
+        content.addView(ui.kick("Next today", top = 18))
+        if (ahead.isEmpty()) content.addView(ui.sub("Nothing else today.", 8))
+        ahead.forEach { (at, label, c) -> content.addView(ui.edged(hhmm(at), label, c)) }
+
+        // The buttons: the one for the moment, then the starts.
+        val footer = ui.footer()
+        val action: Pair<String, () -> Unit>? = when {
+            Ask.reviewDue(this) -> "Review today" to { startActivity(Intent(this, ReviewActivity::class.java)) }
+            mode == "field" -> "Can't go out? Field pass" to { startActivity(Intent(this, FieldPassActivity::class.java)) }
+            mode == "entry" -> "Write today's entry" to { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage("com.asaro.meditation").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            mode == "morning" -> "Open JW Library" to { packageManager.getLaunchIntentForPackage("org.jw.jwlibrary.mobile")?.let { startActivity(it) }; Unit }
             else -> null
         }
-        action?.let { (label, go) ->
-            column.addView(TextView(this).apply {
-                text = label; setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f); typeface = strong; setTextColor(bg); gravity = Gravity.CENTER
-                setPadding(dp(20), dp(15), dp(20), dp(15))
-                background = GradientDrawable().apply { cornerRadius = dp(30).toFloat(); setColor(0xFFFFFFFF.toInt()) }
-                setOnClickListener { go(); finish() }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(34) })
+        action?.let { (label, go) -> footer.addView(ui.button(label, if (ui.dark) 0xFFE8D6A0.toInt() else colour, if (ui.dark) ui.page else 0xFFFFFFFF.toInt()) { go() }) }
+        if (!state.gated && Logbook.running(this) == null && (mode != "night" || minute < 22 * 60)) {
+            footer.addView(start(ui, Kind.STUDY, "Start study", "Personal Bible study"))
+            footer.addView(start(ui, Kind.PREP, "Start meeting prep", "${Logbook.nextMeeting().label} · ${if (Logbook.nextMeeting() == Logbook.Meeting.MIDWEEK) "Thursday" else "Sunday"}"))
         }
-        setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(column) })
+        setContentView(ui.page(content, footer))
     }
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    /** A big start button: ▶, the name, a small line under it. */
+    private fun start(ui: Ui, kind: Kind, label: String, under: String): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL
+        setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12)); background = ui.rounded(kind.colour, 18)
+        addView(ui.text("▶", 13f, ui.strong, 0xFFFFFFFF.toInt()).apply {
+            gravity = android.view.Gravity.CENTER; background = ui.rounded(0x38FFFFFF, 999)
+        }, LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)))
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(ui.dp(12), 0, 0, 0)
+            addView(ui.text(label, 15f, ui.strong, 0xFFFFFFFF.toInt()))
+            addView(ui.text(under, 12f, ui.body, 0xE6FFFFFF.toInt()))
+        })
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(10) }
+        setOnClickListener { Logbook.start(this@NowActivity, kind); openSession() }
+    }
+
+    private fun openSession() = startActivity(Intent(this, SessionActivity::class.java))
+
+    /** Free time runs from the last session that ended today (or 07:00) to the next one (or the 20:00 lock). */
+    private fun freeWindow(now: Long): SessionWindow {
+        val all = Field.today(this) + Study.today(this) + WorkTime.today(this) + BankTime.today(this)
+        val from = all.filter { it.end <= now }.maxOfOrNull { it.end } ?: (startOfDay(0) + 7 * 3_600_000L)
+        val to = all.filter { it.start > now }.minOfOrNull { it.start } ?: (startOfDay(0) + 20 * 3_600_000L)
+        return SessionWindow(from, maxOf(to, now + 60_000L))
+    }
+
+    companion object {
+        val COLOURS = mapOf(
+            "free" to 0xFFC8323F.toInt(), "field" to Kind.FIELD.colour, "study" to Kind.STUDY.colour,
+            "work" to Kind.WORK.colour, "bank" to Kind.BANK.colour, "entry" to 0xFFC76A24.toInt(),
+            "morning" to 0xFFC76A24.toInt(), "night" to 0xFF17263F.toInt(),
+        )
+        val NAMES = mapOf(
+            "free" to "Free time", "field" to "Field service", "study" to "Study", "work" to "Work", "bank" to "Kowane",
+            "entry" to "Today's entry first", "morning" to "Bible hour", "night" to "Night · rest",
+        )
+
+        fun hhmm(t: Long): String = SimpleDateFormat("HH:mm", Locale.UK).format(Date(t))
+
+        /** "3 h 30 left", or with suffix = false "1:27" (hours:minutes). */
+        fun left(ms: Long, suffix: Boolean = true): String {
+            val m = (maxOf(0L, ms) / 60_000L).toInt()
+            if (!suffix) return "%d:%02d".format(m / 60, m % 60)
+            return when { m >= 60 && m % 60 == 0 -> "${m / 60} h left"; m >= 60 -> "${m / 60} h ${m % 60} left"; else -> "$m m left" }
+        }
+    }
 }

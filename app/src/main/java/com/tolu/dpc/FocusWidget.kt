@@ -113,6 +113,7 @@ class FocusWidget : AppWidgetProvider() {
             val progress = if (look == Look.TIDE && tUntil > tStart) ((nowMs - tStart).toFloat() / (tUntil - tStart)).coerceIn(0f, 1f) else look.progress(minute)
             val left = look.left(minute)
             val label = when {
+                Ask.reviewDue(context) -> "Review"
                 look == Look.TIDE -> "${tideLeft}m"
                 look.start == null -> "✎"
                 left >= 60 && left % 60 == 0 -> "${left / 60}h"
@@ -131,8 +132,9 @@ class FocusWidget : AppWidgetProvider() {
         }
 
         private fun tap(context: Context, look: Look, field: Boolean): PendingIntent? {
-            // The ring always opens "Now": what's going on, till when, what's next, and the one useful button.
+            // The ring opens "Now" (what's going on, till when, what's next), or from 20:01 the day's review.
             val intent = when {
+                Ask.reviewDue(context) -> Intent(context, ReviewActivity::class.java)
                 true -> Intent(context, NowActivity::class.java)
                 field -> Intent(context, FieldPassActivity::class.java)
                 else -> when (look) {
@@ -141,7 +143,7 @@ class FocusWidget : AppWidgetProvider() {
                 else -> null
                 }
             } ?: return null
-            return PendingIntent.getActivity(context, if (field) 100 else look.ordinal, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            return PendingIntent.getActivity(context, if (Ask.reviewDue(context)) 101 else if (field) 100 else look.ordinal, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
 
@@ -154,7 +156,7 @@ class FocusWidget : AppWidgetProvider() {
                 Look.NIGHT -> Mood.NIGHT.top to Mood.NIGHT.bottom
                 Look.MORNING -> Mood.MORNING.sky(minute)
                 Look.ENTRY -> Mood.ENTRY.top to Mood.ENTRY.bottom
-                Look.TIDE -> Mood.TIDE.top to Mood.TIDE.bottom
+                Look.TIDE -> 0xFF051C24.toInt() to 0xFF0E4652.toInt()   // the widget keeps the deep-water tide
             }
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = LinearGradient(0f, 0f, w * 0.4f, h.toFloat(), top, bottom, Shader.TileMode.CLAMP) }
             Canvas(bmp).drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
