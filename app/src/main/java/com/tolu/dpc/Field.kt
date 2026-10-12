@@ -78,6 +78,12 @@ object Field {
         Log.d(TAG, "pass: $kind, $reason")
     }
 
+    /** Passes taken on the day starting at `dayStart`. */
+    fun passesOn(context: Context, dayStart: Long): Int {
+        val log = JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_LOG, "[]"))
+        return (0 until log.length()).count { log.getJSONObject(it).getLong("at") in dayStart until dayStart + 86_400_000L }
+    }
+
     /** This week's passes (weeks start on Sunday), oldest first: (time, kind, reason). */
     fun passesThisWeek(context: Context): List<Triple<Long, String, String>> {
         val weekStart = Calendar.getInstance().apply {

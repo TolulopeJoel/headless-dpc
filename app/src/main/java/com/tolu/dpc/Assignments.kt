@@ -89,11 +89,13 @@ object Assignments {
 
     /** The DPC, as device owner, grants itself calendar reading; nothing to tap. */
     fun grantCalendar(context: Context, dpm: DevicePolicyManager, admin: ComponentName) {
-        if (canRead(context)) return
-        runCatching {
-            dpm.setPermissionGrantState(admin, context.packageName, Manifest.permission.READ_CALENDAR,
-                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
-        }.onFailure { Log.e(TAG, "granting calendar access failed", it) }
+        // Reading for the plan; writing for the Happened calendar.
+        listOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR).forEach { perm ->
+            if (context.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) return@forEach
+            runCatching {
+                dpm.setPermissionGrantState(admin, context.packageName, perm, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
+            }.onFailure { Log.e(TAG, "granting $perm failed", it) }
+        }
     }
 
     private fun meetingDay(day: Int) =

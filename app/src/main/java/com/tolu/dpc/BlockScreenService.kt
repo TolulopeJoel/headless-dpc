@@ -50,6 +50,8 @@ class BlockScreenService : AccessibilityService() {
         override fun run() {
             checkTool()
             ColourKeeper.tick(this@BlockScreenService)
+            Usage.tick(this@BlockScreenService)
+            runCatching { NowBar.tick(this@BlockScreenService) }
             handler.postDelayed(this, 30_000)
         }
     }
@@ -58,6 +60,8 @@ class BlockScreenService : AccessibilityService() {
         override fun onReceive(context: Context, intent: Intent) {
             val on = intent.action == Intent.ACTION_SCREEN_ON
             ColourKeeper.onScreen(context, on)
+            Usage.onScreen(context, on)
+            if (on) runCatching { Ask.onScreenOn(context) }
             handler.removeCallbacks(colourTick)
             if (on) handler.postDelayed(colourTick, 30_000)
         }
@@ -88,7 +92,8 @@ class BlockScreenService : AccessibilityService() {
             if (pkg != null && pkg in ScheduleReceiver.softLocked && !isCall(event) && !ColourKeeper.inCall(this)) {
                 performGlobalAction(GLOBAL_ACTION_HOME)
                 handler.postDelayed({
-                    startActivity(Intent(this, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+                    startActivity(Intent(this, BlockedActivity::class.java).putExtra(BlockedActivity.EXTRA_APP, ColourKeeper.label(this, pkg))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
                 }, 150)
                 return
             }
@@ -102,11 +107,13 @@ class BlockScreenService : AccessibilityService() {
             if (pkg != null && pkg in ColourKeeper.SOFT && pkg in ColourKeeper.tidedApps(this) && !isCall(event) && !ColourKeeper.inCall(this)) {
                 performGlobalAction(GLOBAL_ACTION_HOME)
                 handler.postDelayed({
-                    startActivity(Intent(this, BlockedActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+                    startActivity(Intent(this, BlockedActivity::class.java).putExtra(BlockedActivity.EXTRA_APP, ColourKeeper.label(this, pkg))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
                 }, 150)
                 return
             }
             ColourKeeper.onForeground(this, pkg)
+            Usage.onForeground(this, pkg)
             return
         }
         performGlobalAction(GLOBAL_ACTION_BACK)
@@ -171,6 +178,8 @@ class BlockScreenService : AccessibilityService() {
         }
 
         /** Locks the screen the way the power button does, for "Goodnight". False if the service isn't running. */
+        fun goHome(): Boolean = running?.performGlobalAction(GLOBAL_ACTION_HOME) ?: false
+
         fun lockScreen(): Boolean = running?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) ?: false
     }
 }

@@ -114,6 +114,9 @@ internal object ColourKeeper {
     @Volatile private var holdUntil = 0L
     private fun holding() = SystemClock.elapsedRealtime() < holdUntil
 
+    /** The app in front, as last seen. */
+    fun front(): String? = front
+
     /** On a call: a phone call, or a WhatsApp (or any VoIP) call, which puts audio into communication mode. */
     fun inCall(context: Context): Boolean {
         val mode = context.getSystemService(AudioManager::class.java)?.mode
