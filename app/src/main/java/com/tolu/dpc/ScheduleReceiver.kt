@@ -45,7 +45,43 @@ class ScheduleReceiver : BroadcastReceiver() {
             ACTION_TEST_TIDE -> ColourKeeper.testTide(context, intent.getStringExtra("pkg") ?: "com.android.chrome")
             ACTION_ASSIGNMENTS -> Log.d(TAG, "assignments:\n" + Assignments.describe(context))
             ACTION_SET_HOME -> Away.noteHome(context, force = true)
-            ACTION_AWAY -> Log.d(TAG, "away:\n" + Away.describe(context))
+            // Tests over adb: a pretend session for a few minutes, a pretend trip home, the review.
+            ACTION_TEST_SESSION -> {
+                val title = intent.getStringExtra("kind") ?: "Study"
+                val now = System.currentTimeMillis()
+                CalendarSessions.TEST[title] = SessionWindow(now - 60_000L, now + intent.getIntExtra("minutes", 5) * 60_000L)
+            }
+            // The bar's start buttons: a study or meeting-prep session starts now.
+            ACTION_START -> if (Logbook.running(context) == null) Kind.of(intent.getStringExtra("kind"))?.let { Logbook.start(context, it) }
+            ACTION_PREVIEW_BAR -> {
+                NowBar.previewFace = intent.getStringExtra("face")?.uppercase()
+                NowBar.previewMode = intent.getStringExtra("mode")
+                NowBar.previewUntil = SystemClock.elapsedRealtime() + 60_000L
+                NowBar.refresh(context)
+                return
+            }
+            // adb: ask the launcher to place the bar (Android shows "Add to home screen").
+            ACTION_PIN_BAR -> {
+                val manager = android.appwidget.AppWidgetManager.getInstance(context)
+                if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(ComponentName(context, NowBar::class.java), null, null)
+                else Log.d(TAG, "this launcher can't pin widgets")
+            }
+            ACTION_TEST_CLEAR -> {
+                CalendarSessions.TEST.clear()
+                Trail.forgetTests(context)
+                Ask.settle(context)
+                intent.getLongExtra("since", 0L).takeIf { it > 0 }?.let {
+                    Logbook.running(context)?.let { (_, started) -> if (started >= it) Logbook.cancel(context) }
+                    Logbook.forgetSince(context, it)
+                    context.getSharedPreferences("review", Context.MODE_PRIVATE).edit().remove("reviewed_${startOfDay(0)}").apply()
+                }
+            }
+            ACTION_TEST_OUTING -> Trail.pretend(context, intent.getIntExtra("minutes", 90),
+                (intent.getStringExtra("stops") ?: "40").split(",").mapNotNull { it.trim().toIntOrNull() },
+                intent.getStringExtra("lat")?.toDoubleOrNull() ?: 6.5400, intent.getStringExtra("lon")?.toDoubleOrNull() ?: 3.3600,
+                intent.getIntExtra("ago", 0))
+            ACTION_TEST_REVIEW -> context.startActivity(Intent(context, ReviewActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ACTION_AWAY -> Log.d(TAG, "away:\n" + Away.describe(context) + "\n" + Trail.describe(context) + "\n" + Places.describe(context) + "\n" + Happened.describe(context))
             ACTION_TEST_COLOUR -> {
                 ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f), intent.getStringExtra("pkg") ?: "com.android.chrome")
                 return   // look only: pretends minutes of drift, nothing is locked
@@ -63,6 +99,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         // HiOS's Hiber freezer drops the alarms of a frozen app, so nothing may rely on one alarm surviving.
         enforce(context)
         KeepAliveService.start(context)
+        if (intent.action == actionFor(Ask.REVIEW_AT)) Ask.reviewTime(context)
     }
 
     enum class Phase { MORNING, DAY, EVENING, NIGHT }
@@ -117,7 +154,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         private val WORK_SITES = arrayOf("schulltech.approvehr.io")
 
         /** Alarm times: the phase boundaries, the two steps inside the night, and the work site. */
-        private val ALARM_MINUTES = BOUNDARIES.map { it.first } + DEVICE_RULES_FROM + BIBLE_UNTIL + WORK_SITES_FROM
+        private val ALARM_MINUTES = BOUNDARIES.map { it.first } + DEVICE_RULES_FROM + BIBLE_UNTIL + WORK_SITES_FROM + Ask.REVIEW_AT + Ask.REPORT_AT
 
         /** When the laptop's internet goes tonight: 20:00 on a Saturday, 21:00 otherwise. */
         fun deviceRulesFrom(): Int {
@@ -208,6 +245,13 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         /** adb: note home here, now (normally learned in the Bible hour), and: log what the away tracker knows. */
         const val ACTION_SET_HOME = "com.tolu.dpc.ACTION_SET_HOME"
+        const val ACTION_START = "com.tolu.dpc.ACTION_START"
+        const val ACTION_PIN_BAR = "com.tolu.dpc.ACTION_PIN_BAR"
+        const val ACTION_PREVIEW_BAR = "com.tolu.dpc.ACTION_PREVIEW_BAR"
+        const val ACTION_TEST_SESSION = "com.tolu.dpc.ACTION_TEST_SESSION"
+        const val ACTION_TEST_CLEAR = "com.tolu.dpc.ACTION_TEST_CLEAR"
+        const val ACTION_TEST_OUTING = "com.tolu.dpc.ACTION_TEST_OUTING"
+        const val ACTION_TEST_REVIEW = "com.tolu.dpc.ACTION_TEST_REVIEW"
         const val ACTION_AWAY = "com.tolu.dpc.ACTION_AWAY"
 
         /** Apps parked until a date: the Àṣàrò dev build rests until 15 Nov 2026, the end of the Six Anchors plan. */
@@ -242,6 +286,7 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         private fun recordEntry(context: Context) {
             prefs(context).edit().putLong(KEY_LAST_ENTRY, System.currentTimeMillis()).apply()
+            Happened.noteEntry(context)
             Log.d(TAG, "entry saved")
         }
 
@@ -282,6 +327,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             runLogged("applyPhase") { applyPhase(context, currentState(context)) }
             runLogged("scheduleAlarms") { scheduleAlarms(context) }
             runLogged("refreshWidget") { FocusWidget.refresh(context) }
+            runLogged("refreshBar") { NowBar.refresh(context) }
             runLogged("wallpaper") { ModeWallpaper.apply(context, currentState(context)) }
         }
 
@@ -379,7 +425,7 @@ class ScheduleReceiver : BroadcastReceiver() {
 
             // Chrome keeps the jw.org-only rules all night too, so it stays limited even if it ever escapes suspension.
             val jwOnly = phase == Phase.NIGHT || phase == Phase.MORNING
-            setChromePolicy(dpm, admin, jwOnly || state.field || state.study)
+            if (setChromePolicy(dpm, admin, jwOnly || state.field || state.study)) restartChrome(context)
 
             // A test skips the device rules: blocking debugging would cut the adb session running the test,
             // and blocking tethering would cut the laptop's internet.
@@ -387,7 +433,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             // on Saturdays they don't wait; the night before an assignment, they wait until 22:00, to prepare on the laptop.
             Assignments.grantCalendar(context, dpm, admin)
             // The field pass's proof: location kept on, home noted in the Bible hour, the circle watched.
-            runCatching { Away.keepLocationOn(context, dpm, admin); Away.noteHome(context); Away.watch(context) }
+            runCatching { Away.keepLocationOn(context, dpm, admin); Away.watch(context); Trail.keep(context); Ask.daily(context); Ask.weeklyReminder(context) }
                 .onFailure { Log.e(TAG, "away tracking failed", it) }
             val assignment = Assignments.tomorrow(context)
             val rulesFrom = if (assignment) BIBLE_UNTIL else deviceRulesFrom()
@@ -473,7 +519,8 @@ class ScheduleReceiver : BroadcastReceiver() {
         }
 
         /** Chrome's own policies, the ones work phones use. Secure DNS stays off so Chrome can't route around NextDNS. */
-        private fun setChromePolicy(dpm: DevicePolicyManager, admin: ComponentName, jwOnly: Boolean) {
+        /** True if Chrome's rules changed. */
+        private fun setChromePolicy(dpm: DevicePolicyManager, admin: ComponentName, jwOnly: Boolean): Boolean {
             val policy = Bundle().apply {
                 putString("DnsOverHttpsMode", "off")
                 if (jwOnly) {
@@ -486,7 +533,24 @@ class ScheduleReceiver : BroadcastReceiver() {
             if (!samePolicy(current, policy)) {
                 dpm.setApplicationRestrictions(admin, CHROME, policy)
                 Log.d(TAG, "chrome policy: jwOnly=$jwOnly, work site=${jwOnly && workHours()}")
+                return true
             }
+            return false
+        }
+
+        /**
+         * A Chrome already running keeps its old rules until it restarts (seen 12 Oct: a Study session left Wikipedia
+         * open). So when the rules change, Chrome is closed: sent home first if it's in front, then its process ended.
+         * Its tabs come back when it opens again, under the new rules.
+         */
+        private fun restartChrome(context: Context) {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val inFront = ColourKeeper.front() == CHROME
+            if (inFront) BlockScreenService.goHome()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                runCatching { am.killBackgroundProcesses(CHROME) }.onFailure { Log.e(TAG, "closing Chrome failed", it) }
+                Log.d(TAG, "chrome closed so it reads its new rules (was in front: $inFront)")
+            }, if (inFront) 800L else 0L)
         }
 
         private fun samePolicy(a: Bundle, b: Bundle): Boolean =

@@ -4,6 +4,8 @@
 
     <!-- Assignments: an "Assignment" event in the calendar keeps the hotspot until 22:00 the night before -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Happened: the day as it happened, written to his "Happened" calendar -->
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- ModeWallpaper: his wallpaper, tinted for the part of the day -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <!-- The field pass: time away from home, from a geofence round home (only the leaving and returning times are kept) -->
@@ -12,6 +14,8 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Closing Chrome when its rules change, so it reads them (a running Chrome keeps the old ones) -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
@@ -81,6 +85,19 @@
                 android:resource="@xml/focus_widget_info" />
         </receiver>
 
+        <!-- The bar: one 4×1 widget that shows what matters now (replaces the ring) -->
+        <receiver
+            android:name=".NowBar"
+            android:label="Now"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/now_bar_info" />
+        </receiver>
+
         <!-- Setup activity — no launcher intent filter = invisible to drawer -->
         <activity
             android:name=".SetupActivity"
@@ -117,7 +134,7 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
 
         <!-- Shows only the wallpaper, so adb can photograph it -->
         <activity
@@ -130,6 +147,38 @@
         <receiver
             android:name=".Away$Receiver"
             android:exported="false" />
+
+        <!-- Location notes while he's out (Trail), from Google's location service -->
+        <receiver
+            android:name=".Trail$Receiver"
+            android:exported="false" />
+
+        <!-- Study and meeting prep: running, stopping, adding one he forgot -->
+        <activity
+            android:name=".SessionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
+        <!-- "Where were you?" after a trip the plan and known places couldn't label -->
+        <activity
+            android:name=".WhereActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
+        <!-- The 20:01 review -->
+        <activity
+            android:name=".ReviewActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
 
         <!-- The field pass: opened from the blocked screen and the widget during a field session -->
         <activity
