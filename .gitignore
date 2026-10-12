@@ -9,3 +9,4 @@ app/build/
 .externalNativeBuild
 .cxx
 installed-v1.0-backup.apk
+__pycache__/
