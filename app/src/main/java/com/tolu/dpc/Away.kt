@@ -21,15 +21,17 @@ import org.json.JSONObject
 import java.util.Calendar
 
 /**
- * The proof behind the witnessing pass: time away from home. Google's location service watches a circle round home
- * and records each time the phone leaves it and comes back, with the time of each, even while HiOS has the DPC frozen;
- * GPS needs no internet. Home is learned from where the phone is during the Bible hour (05:00–06:30). Only home and
- * the leaving and returning times are kept, on the phone; never where he went.
+ * Home, and time away from it. Google's location service watches a 100 m circle round home and records each time the
+ * phone leaves it and comes back, with the time of each, even while HiOS has the DPC frozen; GPS needs no internet.
+ * Home is fixed (his house, set 12 Oct); `ACTION_SET_HOME` over adb moves it to wherever the phone is. While he's out,
+ * Trail notes where the phone is, so Places can say where he went. All of it stays on the phone.
  */
 object Away {
     private const val TAG = "Away"
     private const val PREFS = "away"
-    private const val RADIUS_M = 200f
+    private const val RADIUS_M = 100f
+    /** His house (12 Oct); the old point, learned in the Bible hour, sat 59 m north of it. */
+    private val DEFAULT_HOME = 6.531880 to 3.347252
     /** The witnessing window: 06:30 to 10:00 (09:30 until he widened it on 10 Oct). */
     const val FROM = 6 * 60 + 30
     const val TO = 10 * 60
@@ -37,36 +39,23 @@ object Away {
 
     // ── Home ──────────────────────────────────────────────────────────────────
 
-    /** Home: the middle of the last week's Bible-hour positions, so one night elsewhere doesn't move it. */
+    /** Home: the point set over adb, or his house. */
     fun home(context: Context): Pair<Double, Double>? {
-        val samples = samples(context)
-        if (samples.isEmpty()) return null
-        fun median(xs: List<Double>) = xs.sorted()[xs.size / 2]
-        return median(samples.map { it.first }) to median(samples.map { it.second })
+        val p = prefs(context)
+        if (!p.contains("home_lat")) return DEFAULT_HOME
+        return Double.fromBits(p.getLong("home_lat", 0L)) to Double.fromBits(p.getLong("home_lon", 0L))
     }
 
-    private fun samples(context: Context): List<Pair<Double, Double>> {
-        val a = JSONArray(prefs(context).getString("home_samples", "[]"))
-        return (0 until a.length()).map { a.getJSONObject(it) }.map { it.getDouble("lat") to it.getDouble("lon") }
-    }
-
-    /** During the Bible hour, once a day, note where the phone is. `force` (adb) notes it now, whatever the time. */
+    /** `ACTION_SET_HOME` (adb): home becomes wherever the phone is now. */
     @SuppressLint("MissingPermission")
     fun noteHome(context: Context, force: Boolean = false) {
-        if (!canLocate(context)) return
-        val p = prefs(context)
-        val minute = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
-        val today = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
-        if (!force && (minute < 5 * 60 || minute >= FROM || p.getInt("home_day", -1) == today)) return
+        if (!force || !canLocate(context)) return
         LocationServices.getFusedLocationProviderClient(context)
             .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
             .addOnSuccessListener { loc ->
                 if (loc == null) return@addOnSuccessListener
-                val a = JSONArray(p.getString("home_samples", "[]"))
-                a.put(JSONObject().put("lat", loc.latitude).put("lon", loc.longitude).put("at", System.currentTimeMillis()))
-                val kept = JSONArray().also { k -> (maxOf(0, a.length() - 7) until a.length()).forEach { k.put(a.get(it)) } }
-                p.edit().putString("home_samples", kept.toString()).putInt("home_day", today).apply()
-                Log.d(TAG, "home noted (±${loc.accuracy.toInt()} m)")
+                prefs(context).edit().putLong("home_lat", loc.latitude.toBits()).putLong("home_lon", loc.longitude.toBits()).apply()
+                Log.d(TAG, "home set (±${loc.accuracy.toInt()} m)")
                 watch(context, force = true)
             }
     }
@@ -79,7 +68,7 @@ object Away {
         if (!canLocate(context)) return
         val (lat, lon) = home(context) ?: return
         val p = prefs(context)
-        val key = "%.4f,%.4f".format(lat, lon)
+        val key = "%.5f,%.5f,%.0f".format(lat, lon, RADIUS_M)
         if (!force && p.getString("watching", null) == key && System.currentTimeMillis() - p.getLong("watched_at", 0L) < 6 * 3_600_000L) return
         val fence = Geofence.Builder()
             .setRequestId("home")
@@ -109,6 +98,7 @@ object Away {
             val out = event.geofenceTransition == Geofence.GEOFENCE_TRANSITION_EXIT
             val at = event.triggeringLocation?.time ?: System.currentTimeMillis()
             record(context, at, out)
+            if (out) Trail.start(context, at) else Trail.stop(context, at)
         }
     }
 
@@ -175,7 +165,7 @@ object Away {
         val moves = (0 until a.length()).map { a.getJSONObject(it) }.joinToString("\n") {
             "  ${java.util.Date(it.getLong("at"))}: ${if (it.getBoolean("out")) "left" else "came"} home"
         }
-        return "home known: ${knowsHome(context)} (${samples(context).size} samples), watching: ${prefs(context).getString("watching", null) != null}, " +
+        return "home: ${if (prefs(context).contains("home_lat")) "set over adb" else "his house"}, ${RADIUS_M.toInt()} m, watching: ${prefs(context).getString("watching", null) != null}, " +
             "can locate: ${canLocate(context)}\naway this morning (06:30–10:00): ${minutesAwayThisMorning(context)} min\n$moves"
     }
 }

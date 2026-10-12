@@ -32,8 +32,14 @@ class CalendarSessions(
     @Volatile private var cached: Pair<Long, List<SessionWindow>>? = null
 
     fun today(context: Context): List<SessionWindow> {
-        cached?.let { (at, list) -> if (System.currentTimeMillis() - at < 30_000) return list }
-        return readToday(context).also { cached = System.currentTimeMillis() to it }
+        val pretend = TEST[title]?.takeIf { it.end > System.currentTimeMillis() }
+        cached?.let { (at, list) -> if (System.currentTimeMillis() - at < 30_000) return list + listOfNotNull(pretend) }
+        return readToday(context).also { cached = System.currentTimeMillis() to it } + listOfNotNull(pretend)
+    }
+
+    companion object {
+        /** adb tests (ACTION_TEST_SESSION): a pretend session by title ("Field", "Study", "Work", "Bank"), until it ends. */
+        val TEST = java.util.concurrent.ConcurrentHashMap<String, SessionWindow>()
     }
 
     /** The session holding right now, or null. */
@@ -90,7 +96,7 @@ class CalendarSessions(
         var off = false
         runCatching {
             context.contentResolver.query(uri, arrayOf(Instances.EVENT_ID, Instances.BEGIN),
-                "${Instances.CALENDAR_DISPLAY_NAME} = ? COLLATE NOCASE AND ${Instances.TITLE} LIKE ?", arrayOf(calendar, "Off%"), null)?.use { c ->
+                "${Instances.CALENDAR_DISPLAY_NAME} = ? COLLATE NOCASE AND ${offTitle(Instances.TITLE)}", arrayOf(calendar), null)?.use { c ->
                 val edit = prefs.edit()
                 while (c.moveToNext()) {
                     val key = "off|${c.getLong(0)}@${c.getLong(1)}"
@@ -117,8 +123,8 @@ class CalendarSessions(
             args += calendar
             val notIn = if (except.isEmpty()) "" else " AND NOT (" + except.joinToString(" OR ") { "${Instances.TITLE} LIKE ?" } + ")"
             args += except.map { "%$it%" }
-            // "Off…" events free the day; they're never sessions themselves.
-            which += " OR (${Instances.CALENDAR_DISPLAY_NAME} = ? COLLATE NOCASE AND ${Instances.TITLE} NOT LIKE 'Off%'$notIn)"
+            // "Off" events free the day; they're never sessions themselves. ("Office" is a session.)
+            which += " OR (${Instances.CALENDAR_DISPLAY_NAME} = ? COLLATE NOCASE AND NOT ${offTitle(Instances.TITLE)}$notIn)"
         }
         val found = mutableMapOf<String, SessionWindow>()
         runCatching {
@@ -138,6 +144,10 @@ class CalendarSessions(
         return found
     }
 }
+
+/** An "Off" event's title: "Off", or "Off" then a space, colon or dash. Not "Office". Matches the laptop's `off\b`. */
+internal fun offTitle(column: String) =
+    "($column = 'Off' COLLATE NOCASE OR $column LIKE 'Off %' OR $column LIKE 'Off:%' OR $column LIKE 'Off-%')"
 
 /** Local midnight, `days` from today. */
 fun startOfDay(days: Int): Long = Calendar.getInstance().apply {
