@@ -359,6 +359,8 @@ def sessions(config, now):
     import icalendar, recurring_ical_events
     found = []
     for c in calendar_list(config):
+        if c.get("name", "").strip().lower() in REPORT_ONLY:     # what happened, never a session to enforce
+            continue
         if cache_of(c).exists():
             found += calendar_sessions(config, c.get("name", ""), icalendar.Calendar.from_ical(cache_of(c).read_bytes()), now)
     return sorted(found, key=lambda s: s[3])
@@ -555,11 +557,50 @@ def step(state):
         except Exception as e:
             print(f"{kind} enforcement failed: {e!r}", file=sys.stderr)
 
+    try:
+        note_front_site(state, now)
+    except Exception as e:
+        print(f"site note failed: {e!r}", file=sys.stderr)
+
     # Sleep is a silence too, but the process never stopped, so it isn't a gap.
     state["heartbeat"] = time.time()
     save(STATE, state)
     write_week()
+    weekly_report(state, now)
     return bool(policy) or sleeping
+
+
+def weekly_report(state, now):
+    """The week's report (weekly_report.py), once a week. His week runs Sunday to Saturday; from Sunday 15:00 (after
+    field service, once the phone's Saturday has synced) the one just ended is made the first time the laptop is
+    online, so a missed Sunday is made whenever the Wi-Fi is back. It opens in Brave when it's made."""
+    if "TOLUS_FOCUS_HOME" in os.environ:
+        return
+    saturday = now.date() - timedelta(days=(now.weekday() - 5) % 7 or 7)    # the last Saturday before today
+    if now.weekday() == 6 and now.hour < 15:                               # Sunday morning: not yet
+        saturday -= timedelta(days=7)
+    week = (saturday - timedelta(days=6)).isoformat()
+    live_from = load_config().get("active_from", "")[:10]
+    if live_from and saturday.isoformat() < live_from:      # a week that ended before any of it was running
+        return
+    if state.get("report_week_of") == week or time.time() - state.get("report_tried", 0) < 600:
+        return
+    state["report_tried"] = time.time()
+    try:
+        urllib.request.urlopen("https://wakatime.com", timeout=10)      # online?
+    except Exception:
+        return
+    try:
+        import weekly_report as wr
+        fetch(load_config())
+        path, agency = wr.make(saturday)
+        state["report_week_of"] = week
+        save(STATE, state)
+        log("report", agency=agency, week=week)
+        subprocess.run(["open", "-a", "Brave Browser", str(path)])
+        notify(f"Your week: agency {agency}%. The report is open in Brave.")
+    except Exception as e:
+        print(f"weekly report failed: {e!r}", file=sys.stderr)
 
 
 # ── Work and Study: the apps ──────────────────────────────────────────────────
@@ -572,6 +613,8 @@ JW_SOURCES = ("jw.org", "jw-cdn.org", "akamaihd.net/files/media_")
 BROWSER_PAGES = ("brave:", "chrome:", "about:", "file:")
 # "Off" as a word of its own at the start of a title: "Off", "Off – holiday", "Off: travel". Not "Office", not "Offer".
 OFF_TITLE = re.compile(r"off\b", re.I)
+# Calendars read only for the weekly report: the phone writes the day as it happened into "Happened".
+REPORT_ONLY = {"happened"}
 # What's been said in each session, so each closed app or site is announced once.
 TOLD = {}
 
@@ -632,6 +675,37 @@ def brave_tabs():
         if len(parts) == 3:
             tabs.append((int(parts[0]), int(parts[1]), parts[2]))
     return tabs
+
+
+def idle_seconds():
+    """Seconds since the keyboard or trackpad was last touched."""
+    out = subprocess.run(["ioreg", "-c", "IOHIDSystem"], capture_output=True, text=True, timeout=5).stdout
+    m = re.search(r'"HIDIdleTime" = (\d+)', out)
+    return int(m.group(1)) / 1e9 if m else 0
+
+
+def note_front_site(state, now):
+    """For the weekly report: the site in Brave's front tab, while Brave is in front and he's at the laptop. Only the
+    site's name and seconds are kept (per day, five weeks), never the page."""
+    if time.time() - state.get("site_at", 0) < TICK:             # at most every 20 s, even in the 3-second ticks
+        return
+    from AppKit import NSWorkspace
+    app = NSWorkspace.sharedWorkspace().frontmostApplication()
+    if not app or app.bundleIdentifier() != "com.brave.Browser" or idle_seconds() > 120:
+        state["site_at"] = time.time()
+        return
+    r = subprocess.run(["osascript", "-e", 'tell application "Brave Browser" to return URL of active tab of front window'],
+                       capture_output=True, text=True, timeout=5)
+    host = (urllib.parse.urlparse(r.stdout.strip()).hostname or "").lower().removeprefix("www.")
+    since = state.get("site_at") or time.time()
+    state["site_at"] = time.time()
+    if not host:
+        return
+    seconds = min(time.time() - since, TICK * 3)
+    day = state.setdefault("sites", {}).setdefault(now.date().isoformat(), {})
+    day[host] = round(day.get(host, 0) + seconds)
+    cutoff = (now.date() - timedelta(days=35)).isoformat()
+    state["sites"] = {d: v for d, v in state["sites"].items() if d >= cutoff}
 
 
 def on_site(url, sites):
@@ -798,3 +872,4 @@ if __name__ == "__main__":
         step(st)
     else:
         {"run": run, "status": status, "report": lambda: print("\n".join(week_lines()))}[cmd]()
+    # The weekly report by hand: python weekly_report.py (in this folder).

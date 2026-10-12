@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,900&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --page: #fbf6ec; --card: #fffdf8; --ink: #17263f; --ink-2: #52514e; --muted: #898781;
+  --line: #ece4d5; --grid: #e7e3d8; --base: #c3c2b7;
+  --work: #2a78d6; --study: #eb6834; --field: #1baf7a; --bank: #eda100;
+  --tip: #17263f;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.45 "Work Sans", system-ui, -apple-system, sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 28px 16px 56px; }
+.top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.week { font: 700 20px/1.2 Fraunces, Georgia, serif; }
+.mock { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--base); border-radius: 999px; padding: 2px 9px; }
+.lab { font-size: 11.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; min-width: 0; }
+.grid { display: grid; gap: 14px; margin-bottom: 14px; }
+.g-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+@media (max-width: 720px) { .g-hero { grid-template-columns: minmax(0, 1fr); } }
+
+.agency { font: 900 92px/0.95 Fraunces, Georgia, serif; letter-spacing: -.02em; }
+.agency small { font-size: 40px; }
+.delta { font-size: 15px; font-weight: 600; color: #006300; margin-top: 6px; }
+
+.cat-h { font: 700 22px/1.2 Fraunces, Georgia, serif; margin: 30px 0 12px; }
+.cat { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); gap: 14px; margin-bottom: 14px; align-items: start; }
+@media (max-width: 720px) { .cat { grid-template-columns: minmax(0, 1fr); } }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.tile .v { font: 900 34px/1 Fraunces, Georgia, serif; }
+.tile .v small { font: 500 15px "Work Sans", sans-serif; color: var(--ink-2); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); margin: 0 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.sw.out { background: transparent !important; border: 1.5px dashed var(--muted); }
+svg { display: block; width: 100%; height: auto; }
+svg text { font-family: "Work Sans", system-ui, sans-serif; }
+.scroll { overflow-x: auto; } .scroll svg { min-width: 700px; }
+
+table { border-collapse: collapse; width: 100%; font-size: 13px; color: var(--ink); }
+td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.honest td:first-child { white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; width: 1%; }
+.zero { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+.zero b { font: 900 18px Fraunces, Georgia, serif; color: var(--ink); margin-right: 4px; }
+button { font: 600 13px "Work Sans", sans-serif; background: var(--ink); color: var(--page); border: 0; border-radius: 999px; padding: 9px 18px; cursor: pointer; }
+#tip { position: fixed; pointer-events: none; background: var(--tip); color: #fbf6ec; font-size: 12.5px; padding: 6px 9px; border-radius: 7px; opacity: 0; z-index: 9; max-width: 260px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="top"><span class="week" id="week"></span><span class="mock" id="made"></span></div>
+
+  <section class="grid g-hero">
+    <div class="card">
+      <p class="lab">Agency</p>
+      <div class="agency" id="agency"></div>
+      <div class="delta" id="delta"></div>
+      <div id="trend" style="margin-top:14px"></div>
+    </div>
+    <div class="card">
+      <p class="lab">What made it</p>
+      <div id="parts"></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:14px">
+    <p class="lab">Planned vs happened</p>
+    <div class="legend" id="legend"></div>
+    <div class="scroll" id="timeline"></div>
+  </section>
+
+  <h2 class="cat-h">Spiritual</h2>
+  <section class="cat">
+    <div class="tiles" id="t-spiritual"></div>
+    <div class="card"><p class="lab">Field, hours a day</p><div id="field"></div></div>
+  </section>
+
+  <h2 class="cat-h">Work</h2>
+  <section class="cat">
+    <div class="tiles" id="t-work"></div>
+    <div class="card"><p class="lab">Laptop, sites in front (h)</p><div id="sites"></div></div>
+  </section>
+
+  <h2 class="cat-h">Kowane</h2>
+  <section class="cat">
+    <div class="tiles" id="t-kowane"></div>
+    <div class="card"><p class="lab">Kowane, hours a day</p><div class="legend" id="kow-legend"></div><div id="kowane"></div></div>
+  </section>
+
+  <h2 class="cat-h">Rest</h2>
+  <section class="cat">
+    <div class="tiles" id="t-rest"></div>
+    <div class="card"><p class="lab">Phone dark, each night</p><div id="sleep"></div></div>
+  </section>
+
+  <h2 class="cat-h">Screens</h2>
+  <section class="cat">
+    <div class="tiles" id="t-screens"></div>
+    <div class="card"><p class="lab">Phone, fun apps (min a day)</p><div id="drift"></div></div>
+  </section>
+
+  <h2 class="cat-h">Integrity</h2>
+  <section class="card honest">
+    <p class="lab">Honest list</p>
+    <table><tbody id="honest"></tbody></table>
+    <div class="zero" id="zeros"></div>
+    <div style="margin-top:14px"><button id="copy">Copy for your witness</button></div>
+  </section>
+</main>
+<div id="tip"></div>
+<script>
+const R = /*DATA*/null;
+const $ = id => document.getElementById(id);
+const m = s => { const [h, mm] = s.split(":").map(Number); return h * 60 + mm; };
+const D = R.days;
+const num = (v, d = 1) => v === null || v === undefined ? "—" : (typeof v === "number" && d >= 0 && !Number.isInteger(v) ? v.toFixed(d) : v);
+const tile = (lab, v, unit = "") => `<div class="card tile"><p class="lab">${lab}</p><div class="v">${v}${unit && v !== "—" ? `<small> ${unit}</small>` : ""}</div></div>`;
+$("week").textContent = R.week;
+$("made").textContent = "Made " + R.made;
+$("agency").innerHTML = `${R.agency}<small>%</small>`;
+$("delta").textContent = R.delta === null ? "First week" : (R.delta >= 0 ? `▲ ${R.delta} on last week` : `▼ ${-R.delta} on last week`);
+if (R.delta !== null && R.delta < 0) $("delta").style.color = "#a32b2b";
+const T = R.tiles;
+$("t-spiritual").innerHTML = tile("Bible", num(T.bible)) + tile("Study", num(T.study_h), "h") + tile("Meeting prep", T.prep) + tile("Field", num(T.field_h), "h");
+$("t-work").innerHTML = tile("Work", num(T.work_h), "h");
+$("t-kowane").innerHTML = tile("Banks", num(T.banks)) + tile("At banks", num(T.bank_h), "h") + tile("Building", num(T.build_h), "h");
+$("t-rest").innerHTML = tile("Sleep", num(T.sleep_h), "h") + tile("Dark by 21:30", T.nights ? `${T.dark_ok}<small> / ${T.nights}</small>` : "—");
+$("t-screens").innerHTML = tile("Fun apps", num(T.fun_h), "h") + tile("Daily", num(T.fun_daily, 0), "min");
+$("honest").innerHTML = R.honest.length ? R.honest.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("") : `<tr><td>—</td><td>Nothing to own up to.</td></tr>`;
+$("zeros").innerHTML = R.zeros.map(([n, l]) => `<span><b>${n}</b>${l}</span>`).join("");
+
+// Agency: last four weeks
+(function () {
+  const W = R.trend, w = 300, h = 74, L = 18, R2 = 30, T = 14, B = 18;
+  const x = i => W.length > 1 ? L + i * (w - L - R2) / (W.length - 1) : w / 2, lo = Math.min(50, ...W.map(d => d[1])), y = v => T + (h - T - B) * (1 - (v - lo) / (100 - lo));
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Agency, last four weeks">`;
+  s += `<path d="${W.map((d, i) => (i ? "L" : "M") + x(i) + "," + y(d[1])).join(" ")}" fill="none" stroke="var(--ink)" stroke-width="2"/>`;
+  W.forEach((d, i) => {
+    s += `<circle cx="${x(i)}" cy="${y(d[1])}" r="5" fill="${i === W.length - 1 ? "var(--ink)" : "var(--card)"}" stroke="var(--ink)" stroke-width="2" data-tip="Week of ${d[0]}: ${d[1]}%"/>`;
+    s += `<text x="${x(i)}" y="${h - 3}" font-size="10.5" fill="var(--muted)" text-anchor="middle">${d[0]}</text>`;
+  });
+  s += `<text x="${x(W.length - 1) + 9}" y="${y(W[W.length - 1][1]) + 4}" font-size="12" font-weight="600" fill="var(--ink)">${W[W.length - 1][1]}</text>`;
+  $("trend").innerHTML = s + "</svg>";
+})();
+
+// Agency: the five parts, each 0–100, with its weight
+(function () {
+  const P = R.parts;
+  const w = 460, row = 34, L = 122, h = P.length * row;
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="The parts of agency">`;
+  P.forEach(([n, v, wt], i) => {
+    const y = i * row, bw = (w - L - 64) * v / 100;
+    s += `<text x="${L - 10}" y="${y + 19}" font-size="13" fill="var(--ink-2)" text-anchor="end">${n}</text>`;
+    s += `<rect x="${L}" y="${y + 7}" width="${w - L - 64}" height="16" rx="4" fill="var(--grid)"/>`;
+    s += `<rect x="${L}" y="${y + 7}" width="${bw}" height="16" rx="4" fill="${v < 60 ? "var(--study)" : "var(--ink)"}" data-tip="${n}: ${v}% · weight ${wt}% · adds ${(v * wt / 100).toFixed(1)}"/>`;
+    s += `<text x="${w - 56}" y="${y + 20}" font-size="13" font-weight="600" fill="var(--ink)">${v}%</text>`;
+    s += `<text x="${w - 2}" y="${y + 20}" font-size="11" fill="var(--muted)" text-anchor="end">×${wt}</text>`;
+  });
+  $("parts").innerHTML = s + "</svg>";
+})();
+
+// The week planned (outlines) against the week that happened (solid bars), on one time line.
+const K = { Study: "var(--study)", Field: "var(--field)", Work: "var(--work)", Kowane: "var(--bank)" };
+$("legend").innerHTML = Object.entries(K).map(([k, c]) => `<span><i class="sw" style="background:${c}"></i>${k}</span>`).join("") +
+  `<span><i class="sw out"></i>Planned</span><span><i class="sw" style="background:var(--ink);height:5px"></i>Happened</span>`;
+const PLAN = R.plan, DID = R.did;
+(function () {
+  const w = 960, L = 42, RR = 22, T = 20, row = 42, h = T + row * 7;
+  const x = t => L + (m(t) - 300) / (1320 - 300) * (w - L - RR);
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="The week planned against the week that happened">`;
+  for (let hr = 5; hr <= 22; hr++) {
+    const X = x(String(hr).padStart(2, "0") + ":00");
+    s += `<line x1="${X}" x2="${X}" y1="${T - 4}" y2="${h}" stroke="var(--grid)"/>`;
+    if (hr % 3 === 2 || hr === 22) s += `<text x="${X}" y="11" font-size="11" fill="var(--muted)" text-anchor="middle">${String(hr).padStart(2, "0")}:00</text>`;
+  }
+  D.forEach((d, i) => {
+    const y = T + i * row, n0 = x(d === "Sat" ? "20:00" : "21:00");
+    s += `<text x="0" y="${y + row / 2 + 4}" font-size="12.5" font-weight="600" fill="var(--ink-2)">${d}</text>`;
+    s += `<rect x="${n0}" y="${y + 5}" width="${x("22:00") - n0}" height="${row - 10}" rx="4" fill="var(--grid)" data-tip="${d}: laptop offline"/>`;
+  });
+  PLAN.forEach(([d, k, a, b]) => {
+    const y = T + D.indexOf(d) * row + 5;
+    s += `<rect x="${x(a) + 1}" y="${y}" width="${x(b) - x(a) - 2}" height="${row - 10}" rx="5" fill="${K[k]}" fill-opacity=".1" stroke="${K[k]}" stroke-width="1.3" stroke-dasharray="4 3" data-tip="${d} ${k} planned ${a}–${b}"/>`;
+  });
+  DID.forEach(([d, k, a, b, note]) => {
+    const y = T + D.indexOf(d) * row + row / 2 - 7;
+    const plan = PLAN.some(([pd, pk, pa, pb]) => pd === d && pk === k && m(pa) < m(b) && m(pb) > m(a));
+    s += `<rect x="${x(a) + 1}" y="${y}" width="${Math.max(3, x(b) - x(a) - 2)}" height="14" rx="4" fill="${K[k] || "var(--muted)"}" ${note === "unsure" ? 'fill-opacity=".45"' : ""} data-tip="${d} ${k} ${a}–${b}${plan ? "" : " · not planned"}${note ? " · " + note : ""}"/>`;
+  });
+  $("timeline").innerHTML = s + "</svg>";
+})();
+
+function bars(el, data, o) {
+  const w = 440, h = 170, L = 28, B = 22, T = 18, bw = (w - L) / data.length, y = v => T + (h - T - B) * (1 - v / o.max);
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${o.label}">`;
+  o.ticks.forEach(t => s += `<line x1="${L}" x2="${w}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(t) + 4}" font-size="10.5" fill="var(--muted)" text-anchor="end">${t}</text>`);
+  data.forEach(([lab, v, plan], i) => {
+    const x = L + i * bw + bw * .2, bw2 = bw * .6;
+    if (plan > v) s += `<rect x="${x}" y="${y(plan)}" width="${bw2}" height="${y(v) - y(plan) + (v > 0 ? 4 : 0)}" rx="4" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="4 3"/>`;
+    if (v > 0) s += `<path d="M${x},${y(0)} V${y(v) + 4} q0,-4 4,-4 H${x + bw2 - 4} q4,0 4,4 V${y(0)} Z" fill="${o.colour}" data-tip="${lab}: ${o.fmt(v)}${plan ? " of " + o.fmt(plan) : ""}"/>`;
+    if (v > 0) s += `<text x="${x + bw2 / 2}" y="${Math.min(y(v), plan ? y(plan) : y(v)) - 5}" font-size="11.5" font-weight="600" fill="var(--ink)" text-anchor="middle">${o.short(v)}</text>`;
+    s += `<text x="${x + bw2 / 2}" y="${h - 5}" font-size="11.5" fill="var(--ink-2)" text-anchor="middle">${lab}</text>`;
+  });
+  $(el).innerHTML = s + `<line x1="${L}" x2="${w}" y1="${y(0)}" y2="${y(0)}" stroke="var(--base)"/></svg>`;
+}
+const FIELD = R.field;
+bars("field", FIELD, { max: Math.max(6, ...FIELD.map(f => Math.max(f[1], f[2]))), ticks: [0, 2, 4, 6], colour: "var(--field)", label: "Field hours by day", fmt: v => v.toFixed(1) + " h", short: v => v.toFixed(1) });
+(function () {
+  // Fun apps (the phone's drift apps): one row per app, minutes each day, biggest first.
+  const APPS = R.apps;
+  if (!APPS.length) { $("drift").innerHTML = `<p class="lab" style="margin:8px 0">No phone data this week</p>`; return; }
+  const w = 440, L = 112, row = 50, B = 20, h = APPS.length * row + B, max = Math.max(10, ...APPS.flatMap(a => a[1])), cw = (w - L) / 7;
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Minutes in each fun app by day">`;
+  APPS.forEach(([app, days], i) => {
+    const base = i * row + row - 8, tot = days.reduce((a, b) => a + b, 0);
+    s += `<text x="0" y="${base - 18}" font-size="13" font-weight="600" fill="var(--ink)">${app}</text>`;
+    s += `<text x="0" y="${base - 2}" font-size="11.5" fill="var(--muted)">${tot} min</text>`;
+    s += `<line x1="${L}" x2="${w}" y1="${base}" y2="${base}" stroke="var(--base)"/>`;
+    days.forEach((v, j) => {
+      const bh = (row - 22) * v / max, x = L + j * cw + cw * .22;
+      s += `<path d="M${x},${base} V${base - bh + 3} q0,-3 3,-3 H${x + cw * .56 - 3} q3,0 3,3 V${base} Z" fill="var(--study)" data-tip="${app} · ${D[j]}: ${v} min"/>`;
+    });
+    const top = days.indexOf(Math.max(...days));
+    s += `<text x="${L + top * cw + cw / 2}" y="${base - (row - 22) * days[top] / max - 4}" font-size="10.5" font-weight="600" fill="var(--ink)" text-anchor="middle">${days[top]}</text>`;
+  });
+  D.forEach((d, j) => s += `<text x="${L + j * cw + cw / 2}" y="${h - 4}" font-size="11" fill="var(--ink-2)" text-anchor="middle">${d}</text>`);
+  $("drift").innerHTML = s + "</svg>";
+})();
+
+(function () {
+  // When the phone went dark each night: one dot per night against the 21:30 line, sleep hours under the day.
+  const NIGHTS = R.nights;
+  if (!NIGHTS.length) { $("sleep").innerHTML = `<p class="lab" style="margin:8px 0">No phone data this week</p>`; return; }
+  const w = 440, h = 190, L = 44, RR = 8, T = 14, B = 38, lo = Math.min(m("20:30"), ...NIGHTS.map(n => m(n[1]) - 15)), hi = Math.max(m("23:00"), ...NIGHTS.map(n => m(n[1]) + 15));
+  const mm = t => { let v = m(t); if (v < 720) v += 1440; return v; };
+  const y = t => T + (h - T - B) * (1 - (m(t) - lo) / (hi - lo)), cw = (w - L - RR) / NIGHTS.length, cx = i => L + cw * (i + .5);
+  const lowY = T + (h - T - B);
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Time the phone went dark each night">`;
+  ["21:00","22:00","23:00"].forEach(t => s += `<line x1="${L}" x2="${w - RR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(t) + 4}" font-size="10.5" fill="var(--muted)" text-anchor="end">${t}</text>`);
+  s += `<rect x="${L}" y="${y("21:30")}" width="${w - L - RR}" height="${lowY - y("21:30")}" fill="var(--field)" opacity=".09"/>`;
+  s += `<line x1="${L}" x2="${w - RR}" y1="${y("21:30")}" y2="${y("21:30")}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+  s += `<text x="${L - 6}" y="${y("21:30") + 4}" font-size="10.5" font-weight="600" fill="var(--ink)" text-anchor="end">21:30</text>`;
+  NIGHTS.forEach(([d, a, b], i) => {
+    const hrs = (mm(b) - mm(a)) / 60, ok = m(a) <= m("21:30"), X = cx(i), Y = y(a);
+    s += `<line x1="${X}" x2="${X}" y1="${y("21:30")}" y2="${Y}" stroke="${ok ? "var(--field)" : "var(--study)"}" stroke-width="2"/>`;
+    s += `<circle cx="${X}" cy="${Y}" r="6" fill="${ok ? "var(--field)" : "var(--study)"}" stroke="var(--card)" stroke-width="2"/>`;
+    s += `<text x="${X}" y="${ok ? Y + 18 : Y - 10}" font-size="11" font-weight="600" fill="var(--ink)" text-anchor="middle">${a}</text>`;
+    s += `<text x="${X}" y="${h - 20}" font-size="11.5" fill="var(--ink-2)" text-anchor="middle">${d}</text>`;
+    s += `<text x="${X}" y="${h - 5}" font-size="10.5" fill="var(--muted)" text-anchor="middle">${hrs.toFixed(1)}h</text>`;
+    s += `<rect x="${X - cw / 2}" y="${T}" width="${cw}" height="${h - T - B}" fill="transparent" data-tip="${d}: dark ${a}, light ${b} · ${hrs.toFixed(1)} h"/>`;
+  });
+  $("sleep").innerHTML = s + "</svg>";
+})();
+
+(function () {
+  const SITES = R.sites;
+  if (!SITES.length) { $("sites").innerHTML = `<p class="lab" style="margin:8px 0">Nothing recorded yet</p>`; return; }
+  const w = 440, row = 22, L = 104, h = SITES.length * row, max = SITES[0][1];
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Websites in front on the laptop">`;
+  SITES.forEach(([n, v], i) => {
+    const y = i * row, bw = (w - L - 36) * v / max;
+    s += `<text x="${L - 8}" y="${y + 14}" font-size="11.5" fill="var(--ink-2)" text-anchor="end">${n}</text>`;
+    s += `<rect x="${L}" y="${y + 4}" width="${bw}" height="13" rx="4" fill="var(--work)" data-tip="${n}: ${v} h"/>`;
+    s += `<text x="${L + bw + 5}" y="${y + 14}" font-size="11.5" font-weight="600" fill="var(--ink)">${v}</text>`;
+  });
+  $("sites").innerHTML = s + "</svg>";
+})();
+
+(function () {
+  // Kowane: time at banks (Business calendar) and building time (WakaTime, kowane project), stacked by day.
+  const KOW = R.kowane;
+  const w = 440, h = 170, L = 28, B = 22, T = 18, bw = (w - L) / KOW.length, max = Math.max(4, Math.ceil(Math.max(...KOW.map(k => k[1] + k[2])))), y = v => T + (h - T - B) * (1 - v / max);
+  $("kow-legend").innerHTML = `<span><i class="sw" style="background:var(--bank)"></i>At banks</span><span><i class="sw" style="background:var(--ink)"></i>Building</span>`;
+  let s = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Kowane hours by day">`;
+  [...Array(max + 1).keys()].filter(t => max <= 6 || t % 2 === 0).forEach(t => s += `<line x1="${L}" x2="${w}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/><text x="${L - 6}" y="${y(t) + 4}" font-size="10.5" fill="var(--muted)" text-anchor="end">${t}</text>`);
+  KOW.forEach(([d, bank, build], i) => {
+    const x = L + i * bw + bw * .2, b2 = bw * .6, tot = bank + build, tip = `${d}: banks ${bank.toFixed(1)} h · building ${build.toFixed(1)} h`;
+    if (bank) s += `<rect x="${x}" y="${y(bank)}" width="${b2}" height="${y(0) - y(bank)}" rx="${build ? 0 : 4}" fill="var(--bank)" data-tip="${tip}"/>`;
+    if (build) s += `<rect x="${x}" y="${y(tot)}" width="${b2}" height="${y(bank) - y(tot) - (bank ? 2 : 0)}" rx="4" fill="var(--ink)" data-tip="${tip}"/>`;
+    if (tot) s += `<text x="${x + b2 / 2}" y="${y(tot) - 5}" font-size="11.5" font-weight="600" fill="var(--ink)" text-anchor="middle">${tot.toFixed(1)}</text>`;
+    s += `<text x="${x + b2 / 2}" y="${h - 5}" font-size="11.5" fill="var(--ink-2)" text-anchor="middle">${d}</text>`;
+  });
+  $("kowane").innerHTML = s + `<line x1="${L}" x2="${w}" y1="${y(0)}" y2="${y(0)}" stroke="var(--base)"/></svg>`;
+})();
+
+const tip = $("tip");
+document.addEventListener("mousemove", e => {
+  const t = e.target.closest("[data-tip]");
+  if (!t) { tip.style.opacity = 0; return; }
+  tip.textContent = t.getAttribute("data-tip");
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
+  tip.style.top = e.clientY + 16 + "px"; tip.style.opacity = 1;
+});
+$("copy").addEventListener("click", () => navigator.clipboard.writeText(R.copy).then(() => $("copy").textContent = "Copied"));
+</script>
+</body>
+</html>

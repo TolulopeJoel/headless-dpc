@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs (or updates) the laptop side of Tolu's DPC for this user. No sudo.
 #   ./install.sh                       install or update, keeping the current config
-# Then add each calendar by name with its secret iCal address (Work, Study, Ministry, Business, Reading, Home):
+# Then add each calendar by name with its secret iCal address (Work, Study, Ministry, Business, Happened):
 #   ~/Library/Application\ Support/TolusFocus/venv/bin/python ~/Library/Application\ Support/TolusFocus/tolus_focus.py add-calendar Work 'https://...basic.ics'
 set -euo pipefail
 
@@ -13,10 +13,10 @@ mkdir -p "$HERE"
 if [ ! -x "$HERE/venv/bin/python" ]; then
     /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m venv "$HERE/venv"
 fi
-"$HERE/venv/bin/pip" install -q --disable-pip-version-check icalendar recurring-ical-events
+"$HERE/venv/bin/pip" install -q --disable-pip-version-check icalendar recurring-ical-events pyobjc-framework-Cocoa pyobjc-framework-EventKit
 
 # It runs from outside Documents, so editing the repo copy changes nothing until this is run again.
-cp "$SRC/tolus_focus.py" "$HERE/tolus_focus.py"
+cp "$SRC/tolus_focus.py" "$SRC/weekly_report.py" "$SRC/report_template.html" "$HERE/"
 
 if [ "${1:-}" != "" ]; then
     "$HERE/venv/bin/python" - "$1" <<'EOF'
