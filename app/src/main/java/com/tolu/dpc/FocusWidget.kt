@@ -94,10 +94,10 @@ class FocusWidget : AppWidgetProvider() {
             val now = Calendar.getInstance()
             val minute = if (preview != null && ScheduleReceiver.previewMinute >= 0) ScheduleReceiver.previewMinute
                 else now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-            ids.forEach { id -> manager.updateAppWidget(id, views(context, manager, id, look, minute)) }
+            ids.forEach { id -> manager.updateAppWidget(id, views(context, manager, id, look, minute, state.field)) }
         }
 
-        private fun views(context: Context, manager: AppWidgetManager, id: Int, look: Look, minute: Int): RemoteViews {
+        private fun views(context: Context, manager: AppWidgetManager, id: Int, look: Look, minute: Int, field: Boolean): RemoteViews {
             val density = context.resources.displayMetrics.density
             // Launchers report sizes loosely (HiOS reports too small); the sky is centre-cropped, so only its shape matters.
             val options = manager.getAppWidgetOptions(id)
@@ -126,17 +126,20 @@ class FocusWidget : AppWidgetProvider() {
                 // Drifted into grey: the whole tile goes grey, ring and all.
                 setImageViewBitmap(R.id.focus_ring, desaturate(ring(context, look, progress, label, (64 * density).toInt(), density), colour))
                 setContentDescription(R.id.focus_root, "Focus: $label")
-                setOnClickPendingIntent(R.id.focus_root, tap(context, look))
+                setOnClickPendingIntent(R.id.focus_root, tap(context, look, field))
             }
         }
 
-        private fun tap(context: Context, look: Look): PendingIntent? {
-            val intent = when (look) {
+        private fun tap(context: Context, look: Look, field: Boolean): PendingIntent? {
+            val intent = when {
+                field -> Intent(context, FieldPassActivity::class.java)
+                else -> when (look) {
                 Look.MORNING -> context.packageManager.getLaunchIntentForPackage(JW_LIBRARY)
                 Look.ENTRY -> Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage(ASARO)
                 else -> null
+                }
             } ?: return null
-            return PendingIntent.getActivity(context, look.ordinal, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            return PendingIntent.getActivity(context, if (field) 100 else look.ordinal, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
 

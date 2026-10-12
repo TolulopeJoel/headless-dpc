@@ -44,6 +44,8 @@ class ScheduleReceiver : BroadcastReceiver() {
             ACTION_TEST_END -> { testMinute = -1; previewUntil = 0L }   // enforce() below redraws the widget
             ACTION_TEST_TIDE -> ColourKeeper.testTide(context, intent.getStringExtra("pkg") ?: "com.android.chrome")
             ACTION_ASSIGNMENTS -> Log.d(TAG, "assignments:\n" + Assignments.describe(context))
+            ACTION_SET_HOME -> Away.noteHome(context, force = true)
+            ACTION_AWAY -> Log.d(TAG, "away:\n" + Away.describe(context))
             ACTION_TEST_COLOUR -> {
                 ColourKeeper.pretend(context, intent.getFloatExtra("drift", 0f), intent.getStringExtra("pkg") ?: "com.android.chrome")
                 return   // look only: pretends minutes of drift, nothing is locked
@@ -70,7 +72,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         private const val TAG = "dpc.ScheduleReceiver"
 
         // Alarms from earlier versions (v1.1's window, v1.2's phase names), cancelled on every run so they can't linger.
-        private val LEGACY_ACTIONS = listOf("RESTRICT", "UNRESTRICT", "MORNING", "DAY", "EVENING", "NIGHT")
+        private val LEGACY_ACTIONS = listOf("RESTRICT", "UNRESTRICT", "MORNING", "DAY", "EVENING", "NIGHT", "AT_1200")
             .map { "com.tolu.dpc.ACTION_$it" }
 
         /** Sent by Àṣàrò each time a new entry is saved. */
@@ -153,7 +155,10 @@ class ScheduleReceiver : BroadcastReceiver() {
             CHROME,                         // jw.org and wol.jw.org only, set by chromePolicy
             "org.jw.jwlibrary.mobile",
             "com.asaro.meditation",
+            FIELD_SERVICE,                  // so hours can be logged on an early public-witnessing morning
         )
+
+        private const val FIELD_SERVICE = "com.lostpixels.fieldservice"
 
         /** jw.org covers its subdomains, wol.jw.org included; jw-cdn.org serves their images and media. */
         private val JW_SITES = arrayOf("jw.org", "wol.jw.org", "jw-cdn.org")
@@ -168,7 +173,8 @@ class ScheduleReceiver : BroadcastReceiver() {
         private const val OWNER_NAME = "Tolu, who keeps his word"
 
         /** Always on: the schedule reads the clock, so the clock and time zone come from the network and can't be edited. */
-        private val ALWAYS_RESTRICTIONS = listOf(UserManager.DISALLOW_CONFIG_DATE_TIME)
+        /** Day and night: the clock (network time) and location (the field pass's proof) can't be switched off. */
+        private val ALWAYS_RESTRICTIONS = listOf(UserManager.DISALLOW_CONFIG_DATE_TIME, UserManager.DISALLOW_CONFIG_LOCATION)
 
         @Volatile private var testPhase = Phase.NIGHT
         @Volatile private var testUntil = 0L
@@ -187,6 +193,10 @@ class ScheduleReceiver : BroadcastReceiver() {
 
         /** adb: logs the assignments the DPC has found in the calendar, and which nights they open (look only). */
         const val ACTION_ASSIGNMENTS = "com.tolu.dpc.ACTION_ASSIGNMENTS"
+
+        /** adb: note home here, now (normally learned in the Bible hour), and: log what the away tracker knows. */
+        const val ACTION_SET_HOME = "com.tolu.dpc.ACTION_SET_HOME"
+        const val ACTION_AWAY = "com.tolu.dpc.ACTION_AWAY"
 
         /** Apps parked until a date: the Àṣàrò dev build rests until 15 Nov 2026, the end of the Six Anchors plan. */
         private val PARKED_UNTIL = mapOf(
@@ -268,7 +278,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         }
 
         /** The phase to apply, and whether it comes from an adb test (tests skip the night device rules). */
-        data class State(val phase: Phase, val test: Boolean, val gated: Boolean = false, val tide: Boolean = false)
+        data class State(val phase: Phase, val test: Boolean, val gated: Boolean = false, val tide: Boolean = false, val field: Boolean = false)
 
         /** A test never loosens the real schedule: it only applies while the clock says DAY or EVENING. */
         fun currentState(context: Context): State {
@@ -276,7 +286,8 @@ class ScheduleReceiver : BroadcastReceiver() {
             val daytime = clock == Phase.DAY || clock == Phase.EVENING
             if (daytime && SystemClock.elapsedRealtime() < testUntil) return State(testPhase, test = true)
             if (daytime && gated(context)) return State(Phase.MORNING, test = SystemClock.elapsedRealtime() < gateTestUntil, gated = true)
-            return State(clock, test = false, tide = daytime && ColourKeeper.tideOut(context))
+            return State(clock, test = false, tide = daytime && ColourKeeper.tideOut(context),
+                field = daytime && Field.holding(context) != null)
         }
 
         fun statusText(context: Context): String {
@@ -299,6 +310,14 @@ class ScheduleReceiver : BroadcastReceiver() {
                 am.setAlarmClock(AlarmManager.AlarmClockInfo(trigger, pi), pi)
                 Log.d(TAG, "scheduleAlarm: ${actionFor(minute)} -> $trigger")
             }
+            // Today's field sessions start and end whenever the calendar says: the DPC wakes at each edge.
+            runCatching {
+                Field.edgesAhead(context).forEach { at ->
+                    val action = "com.tolu.dpc.ACTION_FIELD_" + java.text.SimpleDateFormat("HHmm", java.util.Locale.UK).format(java.util.Date(at))
+                    val pi = pendingIntentFor(context, action)
+                    am.setAlarmClock(AlarmManager.AlarmClockInfo(at, pi), pi)
+                }
+            }.onFailure { Log.e(TAG, "field alarms failed", it) }
         }
 
         fun cancelAlarms(context: Context) {
@@ -330,8 +349,8 @@ class ScheduleReceiver : BroadcastReceiver() {
             // Soft-tided apps (WhatsApp) stay unsuspended so calls ring; BlockScreenService turns them away instead.
             val daytimeLocks = parked() + (ColourKeeper.tidedApps(context) - ColourKeeper.SOFT)
             val suspend = when (phase) {
-                Phase.DAY -> packages.filter { it in daytimeLocks }
-                Phase.EVENING -> packages.filter { it in SLACK || it in daytimeLocks }
+                Phase.DAY -> packages.filter { it in daytimeLocks || (state.field && fieldLocked(context, it)) }
+                Phase.EVENING -> packages.filter { it in SLACK || it in daytimeLocks || (state.field && fieldLocked(context, it)) }
                 Phase.NIGHT -> packages.filter { it !in NIGHT_ALLOWED && !(bibleEvening() && it in BIBLE_APPS) }
                 Phase.MORNING -> packages.filter { it !in MORNING_ALLOWED }
             }
@@ -346,13 +365,16 @@ class ScheduleReceiver : BroadcastReceiver() {
 
             // Chrome keeps the jw.org-only rules all night too, so it stays limited even if it ever escapes suspension.
             val jwOnly = phase == Phase.NIGHT || phase == Phase.MORNING
-            setChromePolicy(dpm, admin, jwOnly)
+            setChromePolicy(dpm, admin, jwOnly || state.field)
 
             // A test skips the device rules: blocking debugging would cut the adb session running the test,
             // and blocking tethering would cut the laptop's internet.
             // The hotspot and debugging wait until 21:00 (the plan's "laptop shut"), even though the apps lock at 20:00;
             // on Saturdays they don't wait; the night before an assignment, they wait until 22:00, to prepare on the laptop.
             Assignments.grantCalendar(context, dpm, admin)
+            // The field pass's proof: location kept on, home noted in the Bible hour, the circle watched.
+            runCatching { Away.keepLocationOn(context, dpm, admin); Away.noteHome(context); Away.watch(context) }
+                .onFailure { Log.e(TAG, "away tracking failed", it) }
             val assignment = Assignments.tomorrow(context)
             val rulesFrom = if (assignment) BIBLE_UNTIL else deviceRulesFrom()
             val beforeRules = phase == Phase.NIGHT && minuteNow().let { it >= 20 * 60 && it < rulesFrom }
@@ -361,7 +383,9 @@ class ScheduleReceiver : BroadcastReceiver() {
             // first, so the laptop can have its internet. USB debugging and the apps still wait for 07:00.
             val entryWritten = phase == Phase.MORNING && hasTodaysEntry(context)
             NIGHT_RESTRICTIONS.forEach {
-                val keep = nightRules && !(it == UserManager.DISALLOW_CONFIG_TETHERING && entryWritten)
+                val keep = nightRules && !(it == UserManager.DISALLOW_CONFIG_TETHERING && entryWritten) ||
+                    // A field session takes the laptop's internet (the hotspot), not USB debugging.
+                    (it == UserManager.DISALLOW_CONFIG_TETHERING && state.field && !testing)
                 if (keep) dpm.addUserRestriction(admin, it) else dpm.clearUserRestriction(admin, it)
             }
             lockClock(dpm, admin)
@@ -381,6 +405,7 @@ class ScheduleReceiver : BroadcastReceiver() {
             return when {
                 state.gated -> "Answer two questions in Àṣàrò. Then it all opens."
                 state.phase == Phase.MORNING -> if (hasTodaysEntry(context)) "Entry done. Everything opens at 7." else "Bible first. Everything opens at 7."
+                state.field -> "Field time. The laptop's offline till ${fieldEnds(context)}."
                 state.tide -> "Tide's out for ${ColourKeeper.tidedNames(context)}. Everything else is open."
                 state.phase == Phase.DAY -> "Open. Use it on purpose."
                 state.phase == Phase.EVENING -> "Work's done. Everything rests at 8."
@@ -394,6 +419,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         fun blockedMessage(state: State): String = when {
             state.gated -> "Answer two questions in today's Àṣàrò entry and your phone opens."
             state.phase == Phase.NIGHT && bibleEvening() -> "It's night. JW Library and Àṣàrò are open until 10PM."
+            state.field -> "It's field time. This opens when the session ends. Can't go out? Take a field pass."
             state.tide -> "That app is out with the tide. It comes back by itself."
             state.phase == Phase.DAY -> "Àṣàrò's dev build is parked until 15 November. Your journal is open."
             state.phase == Phase.MORNING -> "Bible first. Everything opens at 7AM."
@@ -465,6 +491,13 @@ class ScheduleReceiver : BroadcastReceiver() {
         }
 
         /** One alarm per time of day, named by it: ACTION_AT_0500, ACTION_AT_1200, … */
+        /** During a field session: the drift apps rest, except Chrome (jw.org only) and WhatsApp (the group's arrangements). */
+        private fun fieldLocked(context: Context, pkg: String) =
+            pkg != CHROME && pkg !in ColourKeeper.SOFT && ColourKeeper.isDrift(context, pkg)
+
+        private fun fieldEnds(context: Context): String =
+            Field.endsAt(context)?.let { java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK).format(java.util.Date(it)) } ?: "later"
+
         private fun actionFor(minute: Int) = "com.tolu.dpc.ACTION_AT_%02d%02d".format(minute / 60, minute % 60)
 
         private fun nextOccurrence(hour: Int, minute: Int): Long =

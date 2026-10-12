@@ -4,6 +4,10 @@
 
     <!-- Assignments: an "Assignment" event in the calendar keeps the hotspot until 22:00 the night before -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- The field pass: time away from home, from a geofence round home (only the leaving and returning times are kept) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
@@ -104,6 +108,20 @@
             android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+        <!-- Google's location service reports leaving and coming home here -->
+        <receiver
+            android:name=".Away$Receiver"
+            android:exported="false" />
+
+        <!-- The field pass: opened from the blocked screen and the widget during a field session -->
+        <activity
+            android:name=".FieldPassActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
 
     </application>
 </manifest>

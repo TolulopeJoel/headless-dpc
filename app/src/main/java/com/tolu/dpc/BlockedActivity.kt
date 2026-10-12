@@ -188,6 +188,8 @@ class BlockedActivity : Activity() {
             Action.WRITE -> launch(Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage(ASARO), ASARO)
             Action.CALL -> launch(Intent(Intent.ACTION_DIAL), "com.sh.smart.caller")
             Action.ASARO -> launch(null, ASARO)
+            Action.FIELD_SERVICE -> launch(null, "com.lostpixels.fieldservice")
+            Action.FIELD_PASS -> startActivity(Intent(this, FieldPassActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
         finish()
         @Suppress("DEPRECATION")
@@ -276,6 +278,8 @@ internal enum class Action(val label: String) {
     WRITE("Write today's entry"),
     CALL("Call someone"),
     ASARO("Open Àṣàrò"),
+    FIELD_SERVICE("Open Field Service"),
+    FIELD_PASS("Can't go out?"),
 }
 
 /** One look per part of the day. `start`/`end` are minutes after midnight; null means there's no countdown. */
@@ -328,6 +332,15 @@ internal enum class Mood(
         start = null, end = null, until = "till the tide's back",
         verse = "Then your peace would become just like a river, and your righteousness like the waves of the sea.", reference = "Isaiah 48:18",
         primary = Action.JW_LIBRARY, secondary = Action.CALL,
+    ),
+    /** A field session from the calendar: the ministry first, the laptop offline. */
+    FIELD(
+        "FIELD MORNING", 0xFFF3F6EC.toInt(), 0xFFDCE6CF.toInt(),
+        0xFF17263F.toInt(), 0xB317263F.toInt(), 0xFF4E7A3A.toInt(), 0xFFF7FAF1.toInt(), 0x1A17263F,
+        lightBackground = true,
+        start = null, end = null, until = "of field time left",
+        verse = "How beautiful on the mountains are the feet of the one bringing good news.", reference = "Isaiah 52:7",
+        primary = Action.FIELD_SERVICE, secondary = Action.FIELD_PASS,
     ),
     /** An app parked until a date: the Àṣàrò dev build, until 15 Nov. */
     PARKED(
@@ -385,11 +398,13 @@ internal enum class Mood(
         ENTRY -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.MORNING, test = true, gated = true)
         TIDE -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true, tide = true)
         PARKED -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true)
+        FIELD -> ScheduleReceiver.Companion.State(ScheduleReceiver.Phase.DAY, test = true, field = true)
     }
 
     companion object {
         fun of(state: ScheduleReceiver.Companion.State): Mood = when {
             state.gated -> ENTRY
+            state.field -> FIELD
             state.tide -> TIDE
             state.phase == ScheduleReceiver.Phase.MORNING -> MORNING
             state.phase == ScheduleReceiver.Phase.EVENING -> EVENING
@@ -446,7 +461,7 @@ private class SkyView(context: Context, private val mood: Mood, private val minu
             Mood.EVENING -> sun(canvas, w, h, rising = false)
             Mood.ENTRY -> paper(canvas, w, h)
             Mood.TIDE -> sea(canvas, w, h, t)
-            Mood.PARKED -> daylight(canvas, w, h)
+            Mood.PARKED, Mood.FIELD -> daylight(canvas, w, h)
         }
         // Only the night sky moves every frame; the sun is redrawn now and then as the clock moves it.
         if (mood == Mood.NIGHT || mood == Mood.TIDE) postInvalidateOnAnimation() else postInvalidateDelayed(20_000)
@@ -601,6 +616,7 @@ private class RingView(
         centre = when {
             mood == Mood.TIDE -> tideCountdown()
             mood == Mood.PARKED -> parkedCountdown()
+            mood == Mood.FIELD -> fieldCountdown()
             mood.start == null -> "✎"
             left >= 60 -> "${left / 60}h ${left % 60}m"
             else -> "${left}m"
@@ -618,6 +634,16 @@ private class RingView(
         target = ((now - start).toFloat() / (until - start)).coerceIn(0f, 1f)
         val left = ((until - now + 59_999) / 60_000).toInt()
         return "${left}m"
+    }
+
+    /** Time left in today's field session; the ring fills as it goes. (A preview with none shows a sample.) */
+    private fun fieldCountdown(): String {
+        val now = System.currentTimeMillis()
+        val w = Field.today(context).firstOrNull { now >= it.start && now < it.end }
+        if (w == null) { target = 0.4f; return "1h 48m" }
+        target = ((now - w.start).toFloat() / (w.end - w.start)).coerceIn(0f, 1f)
+        val left = ((w.end - now + 59_999) / 60_000).toInt()
+        return if (left >= 60) "${left / 60}h ${left % 60}m" else "${left}m"
     }
 
     /** Days until 15 Nov; the ring fills from 30 Sep, when the Six Anchors plan began. */
