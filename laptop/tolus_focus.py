@@ -79,7 +79,7 @@ DEFAULT_CONFIG = {
     "night": {"from": "21:00", "saturday_from": "20:00", "until": "05:00"},
     # Wi-Fi off at sleep time, any network. The night before a Thursday or Sunday assignment it waits until 22:00, as
     # the phone's hotspot does. It has its own start date: he asked for it from the night of 10 Oct, before the rest.
-    "wifi_night": {"from": "21:00", "saturday_from": "20:00", "assignment_from": "22:00", "until": "05:00", "active_from": "",
+    "wifi_night": {"from": "23:00", "saturday_from": "20:00", "assignment_from": "22:00", "until": "05:00", "active_from": "",
                    # Saturdays that keep 21:00 like the rest: 10 Oct 2026, asked for at 19:51 that evening.
                    "late_dates": ["2026-10-10"]},
     # The protected sessions, by the first word of the calendar event's title.
@@ -226,6 +226,7 @@ def folders(config, state=None):
 # ── Sleep time: Wi-Fi off ─────────────────────────────────────────────────────
 
 ASSIGNMENT_CACHE = {}
+INTERVIEW_CACHE = {}
 
 
 def wifi_device():
@@ -278,9 +279,43 @@ def assignment_tomorrow(config, state, now):
     return found
 
 
+def interview_until(config, state, now):
+    """As on the phone: the end (plus 15 minutes) of today's last event with "Interview" in its title that was in the
+    calendar before today began. Interviews abroad land in the Lagos evening, so Wi-Fi waits for them (28 Oct 2026)."""
+    cached = INTERVIEW_CACHE.get(now.date())
+    if cached and time.time() - cached[0] < 300:
+        return cached[1]
+    import icalendar, recurring_ical_events
+    seen = state.setdefault("interview_seen", {})
+    today_start = datetime.combine(now.date(), datetime.min.time())
+    latest = None
+    for c in calendar_list(config):
+        if not cache_of(c).exists():
+            continue
+        cal = icalendar.Calendar.from_ical(cache_of(c).read_bytes())
+        for ev in recurring_ical_events.of(cal).between(today_start, today_start + timedelta(days=1)):
+            if "interview" not in str(ev.get("SUMMARY", "")).lower() or not ev.get("DTEND"):
+                continue
+            key = f'{c.get("name")}:{ev.get("UID")}|{ev["DTSTART"].dt}'
+            first = seen.setdefault(key, now.timestamp())
+            stamp = ev.get("LAST-MODIFIED") or ev.get("CREATED")
+            edited = stamp.dt.timestamp() if stamp is not None and isinstance(stamp.dt, datetime) else float("inf")
+            if min(first, edited) >= today_start.timestamp():
+                continue
+            end = ev["DTEND"].dt
+            if not isinstance(end, datetime):
+                continue
+            end = (end.astimezone().replace(tzinfo=None) if end.tzinfo else end) + timedelta(minutes=15)
+            latest = max(latest, end) if latest else end
+    INTERVIEW_CACHE[now.date()] = (time.time(), latest)
+    return latest
+
+
 def sleep_until(config, state, now):
     """If it's sleep time now, when it ends; otherwise None."""
     n = config["wifi_night"]
+    if n.get("open_until") and now < datetime.fromisoformat(n["open_until"]):   # one night off, asked for ahead
+        return None
     ends_today = at(n["until"], now.date())
     if now < ends_today:
         return ends_today
@@ -288,7 +323,13 @@ def sleep_until(config, state, now):
     start = n["saturday_from"] if now.weekday() == 5 and not late else n["from"]
     if now >= at(min(start, n["assignment_from"]), now.date()) and assignment_tomorrow(config, state, now):
         start = n["assignment_from"]
-    return at(n["until"], now.date() + timedelta(days=1)) if now >= at(start, now.date()) else None
+    starts = at(start, now.date())
+    if now.weekday() == 6 and now.day <= 7:     # a checkpoint Sunday: a planning night, open till 23:00 (as on the phone)
+        starts = max(starts, at("23:00", now.date()))
+    interview = interview_until(config, state, now)
+    if interview and interview > starts:
+        starts = interview
+    return at(n["until"], now.date() + timedelta(days=1)) if now >= starts else None
 
 
 def wifi_step(config, state, now):
@@ -420,7 +461,12 @@ def live_sessions(config, state, all_sessions, now):
     today = now.date()
     planned = {s[1] for s in all_sessions if s[3].date() == today and known_before_day(seen, s)}
     planned |= {v[0] for v in held.values() if datetime.fromisoformat(v[2]).date() == today}
+    # An "Off" counts if it was in the calendar by 07:00 that day (he can plan the day in the Bible hour), and frees
+    # that kind's sessions that day, even ones planned days ahead (the phone does the same).
+    by7 = datetime.combine(today, datetime.min.time()).timestamp() + 7 * 3600
     off = {k[4:] for k in planned if k.startswith("Off:")}
+    off |= {s[1][4:] for s in all_sessions if s[1].startswith("Off:") and s[3].date() == today
+            and min(seen.get(s[0], time.time()), s[5] if s[5] is not None else float("inf")) < by7}
     for kind, weekday, a, b, title in config.get("default_week", []):
         if weekday == today.weekday() and kind not in planned and kind not in off:
             windows[f"default:{kind}:{today}:{a}"] = (kind, f"{title} (typical week)", at(a, today), at(b, today))
@@ -558,6 +604,10 @@ def step(state):
             print(f"{kind} enforcement failed: {e!r}", file=sys.stderr)
 
     try:
+        sync_people(state)
+    except Exception as e:
+        print(f"people sync failed: {e!r}", file=sys.stderr)
+    try:
         note_front_site(state, now)
     except Exception as e:
         print(f"site note failed: {e!r}", file=sys.stderr)
@@ -675,6 +725,25 @@ def brave_tabs():
         if len(parts) == 3:
             tabs.append((int(parts[0]), int(parts[1]), parts[2]))
     return tabs
+
+
+def sync_people(state):
+    """While the phone is plugged in (every 10 minutes): make sure its debugging service is reachable on port 5555, so
+    the DPC can read Field Service's backup on the phone by itself (FieldService.kt). A restart switches it off; this
+    switches it back on. The phone does the reading and converting; the laptop only does this."""
+    if "TOLUS_FOCUS_HOME" in os.environ or time.time() - state.get("people_tried", 0) < 600:
+        return
+    state["people_tried"] = time.time()
+    adb = next((a for a in ("/Users/tolu/Library/Android/platform-tools/adb", "/Users/tolu/platform-tools/adb") if os.path.exists(a)), None)
+    if not adb: return
+    run = lambda *a: subprocess.run([adb, "-d", *a], capture_output=True, text=True, timeout=30)
+    if run("get-state").stdout.strip() != "device": return
+    if run("shell", "getprop", "service.adb.tcp.port").stdout.strip() != "5555":
+        run("tcpip", "5555")
+        log("phone_selfadb_on")
+        time.sleep(5)
+        run("wait-for-usb-device")
+        run("shell", "am", "broadcast", "-n", "com.tolu.dpc/.ScheduleReceiver", "-a", "com.tolu.dpc.ACTION_SYNC_PEOPLE")
 
 
 def idle_seconds():

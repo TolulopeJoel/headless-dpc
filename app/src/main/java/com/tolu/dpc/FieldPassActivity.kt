@@ -27,16 +27,19 @@ class FieldPassActivity : Activity() {
     private fun build() {
         val ui = Ui(this)
         val green = Kind.FIELD.colour
-        val (witnessOpen, pulledOpen) = Field.passesOpen(this)
-        val ends = Field.endsAt(this)?.let { NowActivity.hhmm(it) }
-        if (kind == null) kind = if (pulledOpen) "pulled back" else if (witnessOpen) "witnessing" else null
+        // A preview (adb, look only) shows the choices as on a field morning with none taken; nothing can be taken.
+        val preview = intent.getBooleanExtra(EXTRA_PREVIEW, false)
+        val (witnessOpen, pulledOpen) = if (preview) false to true else Field.passesOpen(this)
+        val ends = if (preview) "14:00" else Field.endsAt(this)?.let { NowActivity.hhmm(it) }
+        val emergencyOpen = preview || Field.emergencyOpen(this)
+        if (kind == null) kind = if (pulledOpen) "pulled back" else if (witnessOpen) "witnessing" else if (emergencyOpen) "emergency" else null
 
         val content = ui.column()
         content.addView(ui.kick("Field pass", green))
         content.addView(ui.big("Can't go out this morning?"))
         val footer = ui.footer()
         when {
-            Field.passedToday(this) -> content.addView(ui.sub("Today's pass is taken. The hotspot's back for the rest of today's field time.", 8))
+            Field.passedToday(this) && !preview -> content.addView(ui.sub("Today's pass is taken. The hotspot's back for the rest of today's field time.", 8))
             ends == null -> content.addView(ui.sub("There's no field session left today.", 8))
             else -> {
                 content.addView(ui.sub("The hotspot comes back till $ends."))
@@ -47,12 +50,14 @@ class FieldPassActivity : Activity() {
                     ui.ends("away ${away / 60} h ${away % 60} m", "of 2 h · 06:30–10:00")))
                 content.addView(option(ui, "pulled back", "Went out, work pulled me back", pulledOpen,
                     ui.ends(if (pulledOpen) "you've been out" else "needs time away from home", "since 30 m before the session")))
+                content.addView(option(ui, "emergency", "Emergency", emergencyOpen,
+                    ui.ends(if (emergencyOpen) "once a week · no walk needed" else "used this week", "goes on the honest list")))
                 val reason = ui.input("What's the emergency?")
                 content.addView(reason)
                 val take = ui.button("Take the pass", green, 0xFFFFFFFF.toInt()) {
                     val why = reason.text.toString().trim()
-                    val open = if (kind == "witnessing") witnessOpen else pulledOpen
-                    if (kind == null || !open) return@button
+                    val open = when (kind) { "witnessing" -> witnessOpen; "emergency" -> emergencyOpen; else -> pulledOpen }
+                    if (kind == null || !open || preview) return@button
                     if (why.length < 8) { reason.error = "Say what it is, in a few words"; return@button }
                     Field.takePass(this, kind!!, why)
                     ScheduleReceiver.enforce(this)
@@ -78,7 +83,7 @@ class FieldPassActivity : Activity() {
         if (week.isNotEmpty()) {
             content.addView(ui.kick("This week", top = 22))
             week.forEach { (at, k, why) ->
-                content.addView(ui.text("${SimpleDateFormat("EEE HH:mm", Locale.UK).format(Date(at))} · ${if (k == "witnessing") "2 h witnessing" else "pulled back"} · $why", 13.5f, ui.body, ui.ink, 6))
+                content.addView(ui.text("${SimpleDateFormat("EEE HH:mm", Locale.UK).format(Date(at))} · ${when (k) { "witnessing" -> "2 h witnessing"; "emergency" -> "emergency"; else -> "pulled back" }} · $why", 13.5f, ui.body, ui.ink, 6))
             }
         }
         setContentView(ui.page(content, footer))
@@ -99,4 +104,6 @@ class FieldPassActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(12) }
         if (open) setOnClickListener { kind = key; build() }
     }
+
+    companion object { const val EXTRA_PREVIEW = "preview" }
 }

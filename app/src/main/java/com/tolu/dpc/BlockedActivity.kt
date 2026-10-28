@@ -49,6 +49,9 @@ class BlockedActivity : Activity() {
     private lateinit var column: LinearLayout
     private lateinit var displayFace: Typeface
     private var minuteOverride = -1
+    /** On the entry screen: where Gemini's check of today's entry stands. */
+    private var reading: TextView? = null
+    private val onReading: () -> Unit = { showReading() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -128,6 +131,14 @@ class BlockedActivity : Activity() {
         column.addView(ring, LinearLayout.LayoutParams(dp(200), dp(200)))
         column.addView(title)
         column.addView(verse, wrap())
+        if (mood == Mood.ENTRY && !previewing) {
+            reading = text("", 14f, mood.ink, strong).apply {
+                setPadding(0, dp(18), 0, 0); maxWidth = dp(300)
+                setOnClickListener { startActivity(android.content.Intent(this@BlockedActivity, ReadingActivity::class.java)) }
+            }
+            column.addView(reading, wrap())
+            showReading()
+        }
         column.addView(primary, wrap().apply { topMargin = dp(36) })
         if (links.childCount > 0) column.addView(links, wrap().apply { topMargin = dp(6) })
 
@@ -150,6 +161,21 @@ class BlockedActivity : Activity() {
     override fun onResume() {
         super.onResume()
         tick()
+        if (reading != null) {
+            Reading.listen(onReading)
+            Reading.retry(this)   // every time this screen opens, a pending entry is asked about again
+        }
+    }
+
+    /** The check's line under the verse; once it passes, the phone is open, so there's nothing left to show. */
+    private fun showReading() {
+        val view = reading ?: return
+        if (Reading.status(this) in setOf(Reading.Status.PASSED, Reading.Status.UNCHECKED)) {
+            goHome()
+            finish()
+            return
+        }
+        view.text = Reading.line(this) + "\nTap for details."
     }
 
     /** Opened again while still alive (left with the home button): rebuild, so the mood and app are today's, not stale. */
@@ -162,6 +188,7 @@ class BlockedActivity : Activity() {
     override fun onPause() {
         super.onPause()
         handler.removeCallbacksAndMessages(null)
+        Reading.unlisten(onReading)
     }
 
     /** The countdown moves on its own while the screen is open. */
@@ -195,6 +222,7 @@ class BlockedActivity : Activity() {
                 return
             }
             Action.ALARM -> launch(Intent(AlarmClock.ACTION_SHOW_ALARMS), "com.transsion.deskclock")
+            Action.PLAN -> TodayLine.planTomorrow(this)
             Action.JW_LIBRARY -> launch(null, "org.jw.jwlibrary.mobile")
             Action.WRITE -> launch(Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage(ASARO), ASARO)
             Action.CALL -> launch(Intent(Intent.ACTION_DIAL), "com.sh.smart.caller")
@@ -286,6 +314,7 @@ internal enum class Action(val label: String) {
     HOME("Go home"),
     GOODNIGHT("Goodnight"),
     ALARM("Set an alarm"),
+    PLAN("Plan tomorrow"),
     JW_LIBRARY("Open JW Library"),
     WRITE("Write today's entry"),
     CALL("Call someone"),
@@ -310,7 +339,7 @@ internal enum class Mood(
         lightBackground = false,
         start = 20 * 60, end = 5 * 60, until = "until 5AM",
         verse = "For he provides sleep for those he loves.", reference = "Psalm 127:2",
-        primary = Action.GOODNIGHT, secondary = Action.ALARM,
+        primary = Action.GOODNIGHT, secondary = Action.PLAN,
     ),
     MORNING(
         "BIBLE HOUR", 0xFFFBF6EC.toInt(), 0xFFFBF6EC.toInt(),
@@ -426,7 +455,7 @@ internal enum class Mood(
     companion object {
         fun of(state: ScheduleReceiver.Companion.State): Mood = when {
             state.gated -> ENTRY
-            state.field -> FIELD
+            // Field time locks nothing (17 Oct): an app shut then is shut for its own reason (a tide, parked).
             state.study -> STUDY
             state.tide -> TIDE
             state.phase == ScheduleReceiver.Phase.MORNING -> MORNING

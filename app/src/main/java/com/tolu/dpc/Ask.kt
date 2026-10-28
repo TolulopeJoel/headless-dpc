@@ -9,26 +9,37 @@ import java.util.Calendar
 /**
  * When to ask, and only when it needs to. Coming home after 30 minutes or more: if the plan had a field, bank or work
  * session then, that's the answer; stops at known places label themselves; anything left is asked once ("Where were
- * you?"), right away before 21:00, or the next morning. From 20:01 the day's review waits for him: it opens on the
- * 20:01 alarm and on unlocking, until he says it looks right. Skipping is fine: unconfirmed rows stay unconfirmed.
+ * you?"), right away before 21:00, or the next morning. From 21:00 the day's review waits for him: it opens on the
+ * 21:00 alarm and on unlocking, until he says it looks right. 21:00 since 28 Oct 2026, so the review, planning tomorrow,
+ * the card and prayer run as one wind-down instead of interrupting dinner at 20:01. Skipping is fine: unconfirmed rows stay unconfirmed.
  */
 object Ask {
     private const val TAG = "Ask"
     private const val PREFS = "ask"
-    const val REVIEW_AT = 20 * 60 + 1
+    const val REVIEW_AT = 21 * 60
     private const val QUIET_FROM = 21 * 60
     private const val QUIET_TO = 7 * 60
 
     // ── Coming home ───────────────────────────────────────────────────────────
 
     fun cameHome(context: Context, id: Long) {
-        val o = Trail.outing(context, id) ?: return
-        val plan = planFor(context, o)
-        if (plan != null) {
-            Trail.answer(context, id, "all", plan)
-            Log.d(TAG, "outing labelled by the plan: ${plan.label}")
-            Happened.write(context, startOfDay(0))
-            return
+        var o = Trail.outing(context, id) ?: return
+        runCatching { FieldBackup.cameHome(context) }
+        planFor(context, o)?.let { (plan, windows) ->
+            // Field answers for the whole trip (a territory is many short stops). Work and Kowane only answer for the
+            // stops inside the session: 16 Oct, out 13:57–20:16, the 18:13 and 19:10 stops came after work and were
+            // filed as work without a word.
+            fun inside(s: Trail.Stop) = windows.sumOf { w -> maxOf(0L, minOf(s.to, w.end) - maxOf(s.from, w.start)) } * 2 >= s.to - s.from
+            val outside = if (plan == Kind.FIELD) emptyList() else o.stops.filterNot { inside(it) }
+            if (outside.isEmpty()) {
+                Trail.answer(context, id, "all", plan)
+                Log.d(TAG, "outing labelled by the plan: ${plan.label}")
+                Happened.write(context, startOfDay(0))
+                return
+            }
+            o.stops.filter { inside(it) }.forEach { Trail.answer(context, id, it.key, plan) }
+            Log.d(TAG, "stops in the plan labelled ${plan.label}; ${outside.size} outside it to ask about")
+            o = Trail.outing(context, id) ?: return
         }
         if (o.minutes < Trail.ASK_AFTER_MIN || Day.toCheck(Day.outingBlocks(context, o)).isEmpty()) {
             Happened.write(context, startOfDay(0))
@@ -36,19 +47,29 @@ object Ask {
         }
         val pending = pending(context) + id
         prefs(context).edit().putString("where", JSONArray(pending.distinct()).toString()).apply()
-        if (!quiet()) showWhere(context, id)
+        if (!quiet() && !FieldBackup.holdsAsking(context)) showWhere(context, id)
     }
 
-    /** The planned session most of this trip fell in: field (from half an hour before it), banks or work. */
-    private fun planFor(context: Context, o: Trail.Outing): Kind? = runCatching {
+    /** The planned session most of this trip fell in (field from half an hour before it, banks or work), with its windows. */
+    private fun planFor(context: Context, o: Trail.Outing): Pair<Kind, List<SessionWindow>>? = runCatching {
+        // No stops at all (a walk, a drive): the plan can't vouch for it, so it's asked about (14 Oct).
+        if (o.stops.isEmpty() && o.minutes >= Trail.ASK_AFTER_MIN) return@runCatching null
+        // A stop at the Kingdom Hall (a meeting before field, say): the stops speak for themselves, not the plan.
+        if (o.stops.any { s -> Places.at(context, s.lat, s.lon)?.let { it.kind == Kind.HALL && it.sure } == true }) return@runCatching null
         val kinds = listOf(
             Kind.FIELD to Field.today(context).map { SessionWindow(it.start - 30 * 60_000L, it.end + 30 * 60_000L) },
             Kind.BANK to BankTime.today(context).map { SessionWindow(it.start - 30 * 60_000L, it.end + 30 * 60_000L) },
             Kind.WORK to WorkTime.today(context).map { SessionWindow(it.start - 45 * 60_000L, it.end + 30 * 60_000L) },
         )
-        kinds.map { (kind, ws) -> kind to ws.sumOf { w -> maxOf(0L, minOf(o.to, w.end) - maxOf(o.from, w.start)) } }
-            .filter { it.second * 2 >= o.to - o.from }.maxByOrNull { it.second }?.first
+        kinds.map { (kind, ws) -> Triple(kind, ws, ws.sumOf { w -> maxOf(0L, minOf(o.to, w.end) - maxOf(o.from, w.start)) }) }
+            .filter { it.third * 2 >= o.to - o.from }.maxByOrNull { it.third }?.let { it.first to it.second }
     }.getOrNull()
+
+    /** adb (ACTION_REOPEN_OUTING): ask about this trip again ("Where were you?" now, or on the next unlock). */
+    fun askAgain(context: Context, id: Long) {
+        prefs(context).edit().putString("where", JSONArray((pending(context) + id).distinct()).toString()).putLong("shown_at", 0L).apply()
+        if (!quiet()) showWhere(context, id)
+    }
 
     fun pending(context: Context): List<Long> {
         val a = JSONArray(prefs(context).getString("where", "[]"))
@@ -73,7 +94,7 @@ object Ask {
 
     fun reviewDue(context: Context) = minuteNow() >= REVIEW_AT && !Day.reviewed(context)
 
-    /** The 20:01 alarm. */
+    /** The 21:00 alarm. */
     fun reviewTime(context: Context) {
         if (reviewDue(context)) showReview(context)
         FocusWidget.refresh(context)
@@ -87,10 +108,19 @@ object Ask {
         }.onFailure { Log.e(TAG, "couldn't show the review", it) }
     }
 
-    /** Unlocking: the review first (from 20:01), else a waiting "Where were you?" (07:00–21:00). At most every 15 minutes. */
+    /** Unlocking: the review first (from 21:00), else a waiting "Where were you?" (07:00–21:00). At most every 15 minutes. */
     fun onScreenOn(context: Context) {
         if (System.currentTimeMillis() - prefs(context).getLong("shown_at", 0L) < 15 * 60_000L) return
         if (ScheduleReceiver.currentState(context).gated) return            // the entry comes first
+        if (FieldBackup.holdsAsking(context)) return                         // Field Service's backup first (on unlock)
+        when {
+            reviewDue(context) -> showReview(context)
+            !quiet() -> pending(context).lastOrNull()?.let { showWhere(context, it) }
+        }
+    }
+
+    /** Field Service's backup is done: whatever was waiting for him now (the review, or "Where were you?"). */
+    fun whereIfWaiting(context: Context) {
         when {
             reviewDue(context) -> showReview(context)
             !quiet() -> pending(context).lastOrNull()?.let { showWhere(context, it) }

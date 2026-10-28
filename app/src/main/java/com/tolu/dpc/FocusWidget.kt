@@ -139,7 +139,7 @@ class FocusWidget : AppWidgetProvider() {
                 field -> Intent(context, FieldPassActivity::class.java)
                 else -> when (look) {
                 Look.MORNING -> context.packageManager.getLaunchIntentForPackage(JW_LIBRARY)
-                Look.ENTRY -> Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage(ASARO)
+                Look.ENTRY -> Intent(context, ReadingActivity::class.java)
                 else -> null
                 }
             } ?: return null

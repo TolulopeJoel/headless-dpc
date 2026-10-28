@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Connecting to the phone's own debugging service on 127.0.0.1, to read Field Service's backup -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Closing Chrome when its rules change, so it reads them (a running Chrome keeps the old ones) -->
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
@@ -53,6 +55,7 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="com.tolu.dpc.ACTION_ENTRY_SAVED" />
+                <action android:name="com.tolu.dpc.ACTION_EXPORT_HAPPENED" />
                 <action android:name="com.tolu.dpc.ACTION_PREVIEW" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_COLOUR" />
                 <action android:name="com.tolu.dpc.ACTION_TEST_TIDE" />
@@ -128,6 +131,14 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
 
+        <!-- Today's reading check, in the open: status, what Àṣàrò sent, every attempt -->
+        <activity
+            android:name=".ReadingActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
         <!-- Behind the ring widget: what's going on now -->
         <activity
             android:name=".NowActivity"
@@ -146,6 +157,16 @@
         <!-- Google's location service reports leaving and coming home here -->
         <receiver
             android:name=".Away$Receiver"
+            android:exported="false" />
+
+        <!-- The home survey: precise readings while he walks the house -->
+        <receiver
+            android:name=".Away$Survey"
+            android:exported="false" />
+
+        <!-- A location note every 5 minutes (the in/out alerts get dropped; these get through) -->
+        <receiver
+            android:name=".Away$Pulse"
             android:exported="false" />
 
         <!-- Location notes while he's out (Trail), from Google's location service -->
@@ -171,6 +192,15 @@
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
 
+        <!-- His people from Field Service: who's near, their notes -->
+        <activity
+            android:name=".PeopleActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
         <!-- The 20:01 review -->
         <activity
             android:name=".ReviewActivity"
@@ -179,6 +209,22 @@
             android:taskAffinity=""
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
+        <!-- Field Service's backups, shared to the DPC: Backup → "E-mail etc." → "Read my visits" -->
+        <activity
+            android:name=".ReceiveBackupActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:label="Read my visits"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
 
         <!-- The field pass: opened from the blocked screen and the widget during a field session -->
         <activity

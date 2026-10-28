@@ -53,6 +53,8 @@ internal object ColourKeeper {
         "com.transsion.calculator", "com.google.android.calendar", "com.transsion.camera",
         "com.google.android.apps.nbu.files", "com.google.android.apps.messaging",
         "com.transsion.soundrecorder", "com.transsion.notebook", "org.localsend.localsend_app",
+        // His call, 12 Oct: Gmail and Photos are never locked in field or study time, and don't count as fun apps.
+        "com.google.android.gm", "com.google.android.apps.photos",
     )
 
     private val driftCache = mutableMapOf<String, Boolean>()
@@ -280,7 +282,7 @@ internal object ColourKeeper {
     /** Only in the day and evening phases: at night and in the Bible hour the lock already has its say. */
     private fun activeNow(context: Context): Boolean {
         val state = ScheduleReceiver.currentState(context)
-        return !state.gated && (state.phase == ScheduleReceiver.Phase.DAY || state.phase == ScheduleReceiver.Phase.EVENING)
+        return !state.gated && !state.paused && (state.phase == ScheduleReceiver.Phase.DAY || state.phase == ScheduleReceiver.Phase.EVENING)
     }
 
     private fun apply(context: Context) {

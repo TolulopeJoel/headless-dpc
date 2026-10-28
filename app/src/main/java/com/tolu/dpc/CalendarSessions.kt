@@ -38,6 +38,9 @@ class CalendarSessions(
     }
 
     companion object {
+        /** An "Off" for today counts if it was made before 07:00 today. */
+        const val OFF_BY = 7 * 3_600_000L
+
         /** adb tests (ACTION_TEST_SESSION): a pretend session by title ("Field", "Study", "Work", "Bank"), until it ends. */
         val TEST = java.util.concurrent.ConcurrentHashMap<String, SessionWindow>()
     }
@@ -81,32 +84,41 @@ class CalendarSessions(
             val (s, e, seen) = (v as? String)?.split(",")?.mapNotNull { it.toLongOrNull() }?.takeIf { it.size == 3 } ?: return@mapNotNull null
             SessionWindow(s, e).takeIf { seen < dayStart && s < startOfDay(1) && e > dayStart }
         }
+        // An "Off" event made in time (before 07:00 that day) frees the sessions it covers, even ones planned days
+        // ahead; an all-day "Off" frees the whole day. Without one, a session known before the day still holds.
+        val offs = offWindows(context, prefs, dayStart, now)
         val planned = (present.values + remembered).distinct().sortedBy { it.start }
-        // Planned before today began (a remembered session), or freed by an "Off…" made before today: the calendar decides.
-        if (remembered.isNotEmpty() || offBeforeToday(context, prefs, dayStart, now)) return planned
+            .filter { w -> offs.none { it.start < w.end && it.end > w.start } }
+        if (remembered.isNotEmpty() || offs.isNotEmpty()) return planned
         val dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
         val typical = defaults.filter { it.first == dow }.map { (_, a, b) -> SessionWindow(dayStart + a * 60_000L, dayStart + b * 60_000L) }
         return (planned + typical).distinct().sortedBy { it.start }
     }
 
-    /** An "Off…" event in this kind's calendar today, first seen before today began. */
-    private fun offBeforeToday(context: Context, prefs: android.content.SharedPreferences, dayStart: Long, now: Long): Boolean {
-        if (calendar == null || context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return false
+    /**
+     * Today's "Off" events in this kind's calendar that count: first seen before 07:00 today (he can plan the day in
+     * the Bible hour, but not skip on a whim later). Each frees the sessions it overlaps.
+     */
+    private fun offWindows(context: Context, prefs: android.content.SharedPreferences, dayStart: Long, now: Long): List<SessionWindow> {
+        if (calendar == null || context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return emptyList()
         val uri = Instances.CONTENT_URI.buildUpon().also { ContentUris.appendId(it, dayStart); ContentUris.appendId(it, startOfDay(8)) }.build()
-        var off = false
+        val out = mutableListOf<SessionWindow>()
         runCatching {
-            context.contentResolver.query(uri, arrayOf(Instances.EVENT_ID, Instances.BEGIN),
+            context.contentResolver.query(uri, arrayOf(Instances.EVENT_ID, Instances.BEGIN, Instances.END, Instances.ALL_DAY),
                 "${Instances.CALENDAR_DISPLAY_NAME} = ? COLLATE NOCASE AND ${offTitle(Instances.TITLE)}", arrayOf(calendar), null)?.use { c ->
                 val edit = prefs.edit()
                 while (c.moveToNext()) {
                     val key = "off|${c.getLong(0)}@${c.getLong(1)}"
                     val seen = prefs.getLong(key, now).also { if (!prefs.contains(key)) edit.putLong(key, now) }
-                    if (c.getLong(1) < startOfDay(1) && seen < dayStart) off = true
+                    val allDay = c.getInt(3) == 1
+                    val begin = if (allDay) dayStart else c.getLong(1)
+                    val end = if (allDay) startOfDay(1) else c.getLong(2)
+                    if (begin < startOfDay(1) && end > dayStart && seen < dayStart + OFF_BY) out += SessionWindow(begin, end)
                 }
                 edit.apply()
             }
         }
-        return off
+        return out
     }
 
     /** Sessions in the calendar from today to a week ahead, keyed by event and start. */

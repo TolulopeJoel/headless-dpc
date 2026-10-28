@@ -12,7 +12,8 @@ import android.view.accessibility.AccessibilityEvent
 /**
  * Android shows its own "Blocked by work policy" dialog for a locked app, and a device owner can't change its words.
  * This closes that dialog as soon as it appears and opens BlockedActivity, which says why and until when.
- * It also tells ColourKeeper which app is in front (the package name only; no window content is read).
+ * It also tells ColourKeeper which app is in front (the package name only). Window content is read only while
+ * FieldBackup is driving Field Service's Backup screen and the share sheet.
  */
 class BlockScreenService : AccessibilityService() {
 
@@ -46,11 +47,14 @@ class BlockScreenService : AccessibilityService() {
 
     private fun clock(ms: Long) = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
 
+    @Volatile private var lastPkg: String? = null
+
     private val colourTick = object : Runnable {
         override fun run() {
             checkTool()
             ColourKeeper.tick(this@BlockScreenService)
             Usage.tick(this@BlockScreenService)
+            FieldService.sync(this@BlockScreenService)
             runCatching { NowBar.tick(this@BlockScreenService) }
             handler.postDelayed(this, 30_000)
         }
@@ -58,6 +62,7 @@ class BlockScreenService : AccessibilityService() {
 
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_USER_PRESENT) { runCatching { FieldBackup.onUnlock(context) }; return }
             val on = intent.action == Intent.ACTION_SCREEN_ON
             ColourKeeper.onScreen(context, on)
             Usage.onScreen(context, on)
@@ -112,6 +117,11 @@ class BlockScreenService : AccessibilityService() {
                 }, 150)
                 return
             }
+            // Leaving Field Service: it writes its backup as he goes; read it for the people reminders.
+            // The keyboard isn't an app he went to: Field Service opens it on a person's page, and counting it hid the leaving.
+            val keyboard = pkg != null && (pkg.contains("inputmethod") || pkg.contains("keyboard") || event.className?.toString() == SOFT_INPUT)
+            if (pkg != null && !keyboard && lastPkg == FieldService.PKG && pkg != FieldService.PKG && pkg !in PASSING) FieldService.leftApp(this)
+            if (pkg != null && !keyboard && pkg !in PASSING) lastPkg = pkg
             ColourKeeper.onForeground(this, pkg)
             Usage.onForeground(this, pkg)
             return
@@ -145,7 +155,7 @@ class BlockScreenService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         running = this
-        registerReceiver(screen, IntentFilter().apply { addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF) })
+        registerReceiver(screen, IntentFilter().apply { addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_USER_PRESENT) })
         handler.postDelayed(colourTick, 30_000)
     }
 
@@ -158,6 +168,7 @@ class BlockScreenService : AccessibilityService() {
 
     companion object {
         private const val ADMIN_DIALOG = "com.android.settings.enterprise.ActionDisabledByAdminDialog"
+        private const val SOFT_INPUT = "android.inputmethodservice.SoftInputWindow"
         private val WHATSAPP = setOf("com.whatsapp", "com.whatsapp.w4b")
         private val TOOLS = setOf("com.transsion.soundrecorder", "com.transsion.notebook", "com.transsion.calculator", "com.transsion.camera")
         /** Windows that pass over whatever is open without meaning you left it. */
@@ -181,5 +192,10 @@ class BlockScreenService : AccessibilityService() {
         fun goHome(): Boolean = running?.performGlobalAction(GLOBAL_ACTION_HOME) ?: false
 
         fun lockScreen(): Boolean = running?.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) ?: false
+
+        /** The window in front, for FieldBackup's taps only. Null if the service isn't running. */
+        fun window(): android.view.accessibility.AccessibilityNodeInfo? = running?.rootInActiveWindow
+
+        fun isRunning() = running != null
     }
 }

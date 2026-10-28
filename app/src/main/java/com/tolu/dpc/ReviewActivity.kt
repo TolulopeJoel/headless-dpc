@@ -52,10 +52,11 @@ class ReviewActivity : Activity() {
             setOnClickListener { startActivity(Intent(this@ReviewActivity, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_ADD, true)) }
         })
         val footer = ui.footer()
-        footer.addView(ui.button("Looks right") {
+        footer.addView(ui.button("Looks right · plan tomorrow") {
             Day.markReviewed(this)
             Happened.write(this, startOfDay(0))
             FocusWidget.refresh(this)
+            TodayLine.planTomorrow(this)
             finish()
         })
         setContentView(ui.page(content, footer))
@@ -83,6 +84,7 @@ class ReviewActivity : Activity() {
         val under = buildList {
             add(if (b.minutes >= 60) "${b.minutes / 60} h ${"%02d".format(b.minutes % 60)}" else "${b.minutes} m")
             if (b.late) add("added later")
+            if (b.guessed) add("${NowActivity.hhmm(b.from)}–${NowActivity.hhmm(b.to)} guessed")
             if (b.status == Day.Status.UNKNOWN) add("new place")
         }.joinToString(" · ")
         row.addView(LinearLayout(this).apply {
@@ -91,7 +93,7 @@ class ReviewActivity : Activity() {
             addView(ui.text(under, 12f, ui.body, ui.ink2))
         }, LinearLayout.LayoutParams(0, -2, 1f))
         when (b.status) {
-            Day.Status.SURE -> row.addView(ui.text("✓", 11f, ui.strong, ui.good).apply {
+            Day.Status.SURE -> if (b.guessed) row.addView(pills(ui, "Fix" to { fixField(b) })) else row.addView(ui.text("✓", 11f, ui.strong, ui.good).apply {
                 gravity = Gravity.CENTER; background = ui.rounded(ui.goodBg, 999)
             }, LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)))
             Day.Status.MISSED -> row.addView(ui.text("missed", 12f, ui.body, ui.muted))
@@ -115,6 +117,20 @@ class ReviewActivity : Activity() {
                 setOnClickListener { go() }
             }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(4) })
         }
+    }
+
+    /** Guessed field times: set when the first conversation was, then the last call. */
+    private fun fixField(b: Day.Block) {
+        val cal = { t: Long -> java.util.Calendar.getInstance().apply { timeInMillis = t } }
+        val day = startOfDay(0)
+        val s0 = cal(b.from); val e0 = cal(b.to)
+        android.app.TimePickerDialog(this, { _, h1, m1 ->
+            val start = day + (h1 * 60 + m1) * 60_000L
+            android.app.TimePickerDialog(this, { _, h2, m2 ->
+                val end = day + (h2 * 60 + m2) * 60_000L
+                if (end > start) { Field.setTimes(this, day, start, end); Happened.write(this, day); build() }
+            }, e0.get(java.util.Calendar.HOUR_OF_DAY), e0.get(java.util.Calendar.MINUTE), true).apply { setTitle("Last call") }.show()
+        }, s0.get(java.util.Calendar.HOUR_OF_DAY), s0.get(java.util.Calendar.MINUTE), true).apply { setTitle("First conversation") }.show()
     }
 
     private fun where(b: Day.Block) {

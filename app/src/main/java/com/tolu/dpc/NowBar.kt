@@ -45,6 +45,8 @@ class NowBar : AppWidgetProvider() {
         private const val CREAM = 0xFFFBF6EC.toInt()
         /** The mockup's own size: the bar is drawn in these units and scaled to the widget. */
         private const val W = 254f
+        /** The field pill's width, in the mockup's units. */
+        private const val FIELD_PILL_W = 78f
         private const val H = 87f
         private const val NIGHT = 0xFF101A2E.toInt()
         private const val INK = 0xFF17263F.toInt()
@@ -98,7 +100,7 @@ class NowBar : AppWidgetProvider() {
                 mode == "night" -> Face.NIGHT
                 mode == "study" -> Face.STUDY
                 mode == "free" -> Face.FREE
-                lastBlock(context, mode) -> Face.LAST
+                mode != "field" && lastBlock(context, mode) -> Face.LAST
                 else -> Face.NORMAL
             }
         }
@@ -162,7 +164,8 @@ class NowBar : AppWidgetProvider() {
                 val main = when (face) {
                     Face.RUNNING -> activity(context, 30, Intent(context, SessionActivity::class.java))
                     Face.REVIEW -> activity(context, 31, Intent(context, ReviewActivity::class.java))
-                    Face.ENTRY -> activity(context, 32, Intent(Intent.ACTION_VIEW, Uri.parse("asaro://addEntry")).setPackage("com.asaro.meditation"))
+                    // While the entry is due: the reading check (where it stands, Try again, a way to Àṣàrò).
+                    Face.ENTRY -> activity(context, 32, Intent(context, ReadingActivity::class.java))
                     else -> activity(context, 33, Intent(context, NowActivity::class.java))
                 }
                 setOnClickPendingIntent(R.id.bar_main, main)
@@ -183,7 +186,12 @@ class NowBar : AppWidgetProvider() {
                 val round = face == Face.FREE
                 setViewVisibility(R.id.bar_study, if (round) View.VISIBLE else View.GONE)
                 setViewVisibility(R.id.bar_prep, if (round) View.VISIBLE else View.GONE)
-                val action = face in setOf(Face.RUNNING, Face.REVIEW, Face.ENTRY)
+                val mode = previewMode?.takeIf { previewing() } ?: ModeWallpaper.modeOf(context, state)
+                val marks = Field.marks(context, startOfDay(0))
+                val fieldTap = face == Face.NORMAL && mode == "field" && marks.second == null
+                val action = face in setOf(Face.RUNNING, Face.REVIEW, Face.ENTRY) || fieldTap
+                if (fieldTap && android.os.Build.VERSION.SDK_INT >= 31)
+                    setViewLayoutWidth(R.id.bar_action, (FIELD_PILL_W + px) * scale, android.util.TypedValue.COMPLEX_UNIT_DIP)
                 setViewVisibility(R.id.bar_action, if (action) View.VISIBLE else View.GONE)
                 if (round || studyRow) {
                     setOnClickPendingIntent(R.id.bar_study, start(context, Kind.STUDY))
@@ -193,6 +201,9 @@ class NowBar : AppWidgetProvider() {
                 }
                 if (action) setOnClickPendingIntent(R.id.bar_action, when (face) {
                     Face.RUNNING -> activity(context, 34, Intent(context, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_STOP, true))
+                    Face.NORMAL -> PendingIntent.getBroadcast(context, 42, Intent(context, ScheduleReceiver::class.java)
+                        .setAction(ScheduleReceiver.ACTION_FIELD_MARK).putExtra("which", if (marks.first == null) "start" else "end"),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
                     else -> main
                 })
                 setContentDescription(R.id.bar_root, "Now")
@@ -230,7 +241,7 @@ class NowBar : AppWidgetProvider() {
                     Face.STUDY -> { head(mode); studyButtons() }
                     Face.FREE -> { head(if (mode == "free") mode else "free", buttons = true); strip() }
                     Face.LAST -> last(mode)
-                    Face.NORMAL -> { head(mode); strip() }
+                    Face.NORMAL -> { head(mode); strip(); if (mode == "field") fieldPill() }
                 }
             }
 
@@ -344,6 +355,17 @@ class NowBar : AppWidgetProvider() {
                 c.drawText("▶", px + 20.9f, cy + 3.9f, paint(0xFFFFFFFF.toInt(), 10.5f, strong, Paint.Align.CENTER))
                 c.drawText("Start study", px + 38f, cy + 4.3f, paint(0xFFFFFFFF.toInt(), 12.5f, strong))
                 c.drawText("▶ Prep", w - px - prepW / 2f, cy + 4f, paint(0xFFFFFFFF.toInt(), 11f, strong, Paint.Align.CENTER))
+            }
+
+            /** Field time: "First talk" until he's tapped it, then "Done", then nothing. Top right, beside the title. */
+            fun fieldPill() {
+                val (start, end) = Field.marks(context, startOfDay(0))
+                val label = when { start == null -> "▶ First talk"; end == null -> "■ Done"; else -> return }
+                val fillC = if (start == null) Kind.FIELD.colour else INK
+                val p = paint(if (start == null) 0xFFFFFFFF.toInt() else CREAM, 10.5f, strong, Paint.Align.CENTER)
+                val r = RectF(w - px - FIELD_PILL_W, 11f, w - px, 37f)
+                fill(r, fillC, 13f)
+                c.drawText(label, r.centerX(), r.centerY() + 3.7f, p)
             }
 
             /** A pill on the right, centred: Stop, Review, Write. */

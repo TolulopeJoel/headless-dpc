@@ -15,13 +15,14 @@ enum class Kind(val label: String, val colour: Int) {
     STUDY("Study", 0xFFEB6834.toInt()),
     PREP("Meeting prep", 0xFF7A5CC2.toInt()),
     ERRAND("Errand", 0xFF898781.toInt()),
+    WALK("Walk", 0xFF898781.toInt()),
     OTHER("Other", 0xFF898781.toInt()),
     AWAY("Away", 0xFF898781.toInt());
 
     companion object {
         fun of(name: String?) = entries.firstOrNull { it.name == name }
         /** The answers to "Where were you?". */
-        val PLACES = listOf(FIELD, WORK, BANK, HALL, ERRAND, OTHER)
+        val PLACES = listOf(FIELD, WORK, BANK, HALL, ERRAND, WALK, OTHER)
     }
 }
 
@@ -57,7 +58,7 @@ object Places {
 
     /** His answer for a stop: the place there learns it (a different answer starts its count again). */
     fun learn(context: Context, lat: Double, lon: Double, kind: Kind) {
-        if (kind == Kind.FIELD || kind == Kind.AWAY) return
+        if (kind == Kind.FIELD || kind == Kind.AWAY || kind == Kind.WALK) return
         val places = all(context).toMutableList()
         val known = at(context, lat, lon)
         if (known == null) {

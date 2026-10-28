@@ -24,8 +24,8 @@ object Field {
     private const val PREFS = "field"
     private const val KEY_LOG = "pass_log"
     private const val KEY_PASS_DAY = "pass_day"
-    /** "Pulled back" needs this much time away from home since today's field time began. */
-    const val PULLED_BACK_AWAY = 5
+    /** "Pulled back" needs this much time away from home since today's field time began (30 from 14 Oct). */
+    const val PULLED_BACK_AWAY = 30
 
     /**
      * Today's sessions: everything in the Ministry calendar, whatever its title (metro, magazine, return visits),
@@ -69,6 +69,17 @@ object Field {
         return (Away.minutesAwayThisMorning(context) >= Away.NEEDED_MINUTES) to wentOut
     }
 
+    /**
+     * The emergency pass: once a week (weeks start on Sunday), no time away needed, only the reason. For the day the
+     * walk didn't register, or work that truly can't wait. It goes on the honest list as an emergency.
+     */
+    fun emergencyOpen(context: Context): Boolean {
+        if (passedToday(context)) return false
+        val now = System.currentTimeMillis()
+        if (today(context).none { it.end > now }) return false
+        return passesThisWeek(context).none { it.second == "emergency" }
+    }
+
     /** Take the pass: the rest of today's sessions are free. */
     fun takePass(context: Context, kind: String, reason: String) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -76,6 +87,27 @@ object Field {
         log.put(JSONObject().put("at", System.currentTimeMillis()).put("kind", kind).put("reason", reason.trim()))
         prefs.edit().putLong(KEY_PASS_DAY, startOfDay(0)).putString(KEY_LOG, log.toString()).apply()
         Log.d(TAG, "pass: $kind, $reason")
+    }
+
+    // ── Field time as he counts it: from the first conversation to the last call ──
+
+    /** "First conversation" on the bar: field time starts now. */
+    fun markStart(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        .putLong("start_${startOfDay(0)}", System.currentTimeMillis()).remove("end_${startOfDay(0)}").apply()
+
+    /** "Done for today" on the bar: field time ends now. */
+    fun markEnd(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        .putLong("end_${startOfDay(0)}", System.currentTimeMillis()).apply()
+
+    /** Set either end by hand (the review's fix). */
+    fun setTimes(context: Context, dayStart: Long, start: Long?, end: Long?) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
+        start?.let { putLong("start_$dayStart", it) }; end?.let { putLong("end_$dayStart", it) }
+    }.apply()
+
+    /** The tapped (or fixed) start and end for a day, if any. */
+    fun marks(context: Context, dayStart: Long): Pair<Long?, Long?> {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return p.getLong("start_$dayStart", 0L).takeIf { it > 0 } to p.getLong("end_$dayStart", 0L).takeIf { it > 0 }
     }
 
     /** Passes taken on the day starting at `dayStart`. */

@@ -11,9 +11,13 @@ The agency number: showing up (kept against planned), the unforceable (banks, st
 (days planned before they came), rest you chose (dark by 21:30), integrity (no bypasses). Unconfirmed rows from the
 phone don't count. A part with no data that week is left out and the others share its weight.
 
-Usage: weekly_report.py [YYYY-MM-DD] [--out FILE] [--dry]
+Usage: weekly_report.py [YYYY-MM-DD] [--out FILE] [--phone FILE] [--dry]
   YYYY-MM-DD  any day in the week to report (default: this week; his weeks run Sunday to Saturday)
   --out       write somewhere else; --dry  don't add the week to the agency history
+  --phone     read the phone's week from the DPC's export instead of the Happened calendar (for a week the calendar
+              missed): adb shell am broadcast -n com.tolu.dpc/.ScheduleReceiver -a com.tolu.dpc.ACTION_EXPORT_HAPPENED
+              --el from <the Sunday's midnight, epoch ms> --ei days 7, then
+              adb pull /sdcard/Android/data/com.tolu.dpc/files/happened.json
 """
 import base64
 import configparser
@@ -99,11 +103,35 @@ def plan(config, state, monday):
     return sorted(rows, key=lambda r: r[2])
 
 
-def happened(monday):
+def meetings_of(config, monday):
+    """The week's meetings: Ministry events with "meeting" in the title (Midweek, Weekend), as (title, start, end)."""
+    start = datetime.combine(monday, datetime.min.time())
+    cal = next((c["name"] for c in tf.calendar_list(config) if c.get("name", "").strip().lower() == "ministry"), None)
+    if not cal:
+        return []
+    return [(e["title"], e["start"], e["end"]) for e in events_of(cal, start, start + timedelta(days=7))
+            if "meeting" in e["title"].lower() and "prep" not in e["title"].lower() and not e["all_day"]]
+
+
+def exported(path, start, end):
+    """The DPC's export (Happened.export) as calendar events: each day's blocks, plus its all-day "Day" numbers."""
+    out = []
+    for d in json.loads(Path(path).read_text()):
+        day = datetime.fromtimestamp(d["day"] / 1000)
+        if not start <= day < end:
+            continue
+        out.append({"title": "Day", "start": day, "end": day + timedelta(days=1), "desc": json.dumps(d["summary"]), "all_day": True})
+        out += [{"title": e["title"], "start": datetime.fromtimestamp(e["start"] / 1000), "end": datetime.fromtimestamp(e["end"] / 1000),
+                 "desc": e["desc"], "all_day": False} for e in d["events"]]
+    return out
+
+
+def happened(monday, phone=None):
     """The phone's week: (blocks, days). Blocks: (day, kind, start, end, status, late, title). Days: {day: numbers}."""
     start = datetime.combine(monday, datetime.min.time())
     blocks, days = [], {}
-    for ev in events_of("Happened", start, start + timedelta(days=7)):
+    events = exported(phone, start, start + timedelta(days=7)) if phone else events_of("Happened", start, start + timedelta(days=7))
+    for ev in events:
         day = (ev["start"].date() - monday).days
         if not 0 <= day < 7:
             continue
@@ -176,7 +204,7 @@ def overlap(a0, a1, spans):
     return sum(max(0.0, (min(a1, b1) - max(a0, b0)).total_seconds()) for b0, b1 in spans)
 
 
-def make(day=None, out=OUT, dry=False):
+def make(day=None, out=OUT, dry=False, phone=None):
     config, state = tf.load_config(), tf.load(tf.STATE, {})
     tf.fetch(config)
     today = day or date.today()
@@ -185,7 +213,7 @@ def make(day=None, out=OUT, dry=False):
     sunday = monday + timedelta(days=6)
 
     planned = plan(config, state, monday)
-    blocks, phone_days = happened(monday)
+    blocks, phone_days = happened(monday, phone)
     sure = [b for b in blocks if b[4] == "SURE"]
     code = wakatime(monday)
     log = laptop_log(monday)
@@ -275,7 +303,13 @@ def make(day=None, out=OUT, dry=False):
     sleep_h = [((tf.at(l, monday) - tf.at(dk, monday)).total_seconds() / 3600) % 24 for _, dk, l in nights]
     work_h = hours([(a, b) for _, _, a, b in merge([(0, "W", a, b) for a, b in did["Work"]])])
 
+    # Meetings: planned in the Ministry calendar; attended if he was at the Kingdom Hall for most of it.
+    hall = [(b[2], b[3]) for b in sure if b[1] == "Hall"]
+    planned_meetings = [m for m in meetings_of(config, monday) if m[2] <= datetime.now()]
+    attended = [m for m in planned_meetings if overlap(m[1], m[2], hall) * 2 >= (m[2] - m[1]).total_seconds()]
+
     tiles = {
+        "meetings": f"{len(attended)}<small> / {len(planned_meetings)}</small>" if planned_meetings and blocks else "—",
         "bible": sum(1 for n in phone_days.values() if n.get("entry")) if phone_days else None,
         "study_h": round(hours([(b[2], b[3]) for b in sure if b[1] == "Study"]), 1) if blocks else None,
         "prep": f"{len(meetings)}<small> / 2</small>" if blocks else "—",
@@ -295,6 +329,8 @@ def make(day=None, out=OUT, dry=False):
     for d, nums in sorted(phone_days.items()):
         if nums.get("passes"):
             honest.append([DAYS[d], f"Field pass{'es' if nums['passes'] > 1 else ''} taken: {nums['passes']}"])
+        if nums.get("reading") == "unchecked":
+            honest.append([DAYS[d], "Phone opened without the reading check (Gemini unreachable)"])
         if not nums.get("reviewed"):
             honest.append([DAYS[d], "Day not reviewed"])
     for b in blocks:
@@ -309,6 +345,11 @@ def make(day=None, out=OUT, dry=False):
         elif e["kind"] == "work_done":
             honest.append([when, "Work ended early (Monday)"])
     zeros = [[count("wifi_on"), "Wi-Fi on at night"], [count("gap"), "lock switched off"], [count("missing"), "folders moved"]]
+    # What was on the phone after 22:00, night by night (the DPC's "late" numbers, from 28 Oct 2026).
+    for d in sorted(phone_days):
+        late = phone_days[d].get("late") or {}
+        if late:
+            honest.append([f"{DAYS[d]} night", "After 22:00: " + ", ".join(f"{app} {m} m" for app, m in late.items())])
     if not phone_days:
         honest.insert(0, ["—", "No phone data: the Happened calendar isn't set up or hasn't synced"])
     if code is None:
@@ -342,5 +383,6 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     out = args[args.index("--out") + 1] if "--out" in args else OUT
     when = next((date.fromisoformat(a) for a in args if re.fullmatch(r"\d{4}-\d{2}-\d{2}", a)), None)
-    path, agency = make(when, out, dry="--dry" in args)
+    phone = args[args.index("--phone") + 1] if "--phone" in args else None
+    path, agency = make(when, out, dry="--dry" in args, phone=phone)
     print(f"{path} · agency {agency}%")

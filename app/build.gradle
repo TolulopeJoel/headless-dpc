@@ -12,8 +12,19 @@ android {
         applicationId "com.tolu.dpc"
         minSdk 26
         targetSdk 35
-        versionCode 75
-        versionName "9.0"
+        versionCode 89
+        versionName "10.0"
+
+        // Gemini checks that the Àṣàrò entry comes from the reading (Reading.kt). The key lives in local.properties
+        // (GEMINI_API_KEY=…), which git ignores; without it no entry can pass and the morning gate stays shut.
+        def local = new Properties()
+        def localFile = rootProject.file('local.properties')
+        if (localFile.exists()) localFile.withInputStream { local.load(it) }
+        buildConfigField "String", "GEMINI_API_KEY", "\"${local.getProperty('GEMINI_API_KEY', '')}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {
@@ -35,6 +46,11 @@ android {
 }
 
 dependencies {
+    // Talking to the phone's own debugging service (127.0.0.1:5555), to read Field Service's automatic backup, which
+    // lives in its private folder that no app may open. One "Always allow" on the phone; re-enabled after a restart.
+    implementation('dev.mobile:dadb:2.0.0') {
+        exclude group: 'org.jetbrains.kotlin'
+    }
     // Geofencing for the field pass: Google's location service records when the phone left home and came back,
     // with the time of each, even while HiOS has the DPC frozen.
     implementation('com.google.android.gms:play-services-location:21.3.0') {

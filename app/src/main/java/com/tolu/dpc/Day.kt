@@ -21,6 +21,8 @@ object Day {
         val fromPlan: Boolean = false,
     ) {
         val minutes get() = ((to - from) / 60_000L).toInt()
+        /** Field times the phone guessed (no taps): shown as guessed in the review, with a fix. */
+        val guessed get() = kind == Kind.FIELD && title.endsWith("(guessed)")
     }
 
     /** The day starting at `dayStart`. The plan (missed sessions, work) is only known for today. */
@@ -35,21 +37,45 @@ object Day {
         return out.sortedBy { it.from }
     }
 
+    /** "Other · Mum's shop" when he typed where; otherwise the kind's name. */
+    private fun label(kind: Kind, note: String?) = if (note.isNullOrBlank()) kind.label else "${kind.label} · $note"
+
     /** One outing's rows: the whole trip if it has a whole-trip answer, otherwise one per stop. */
     fun outingBlocks(context: Context, o: Trail.Outing): List<Block> {
-        o.answers["all"]?.let { return listOf(Block(it, o.from, o.to, Status.SURE, it.label, o.id, "all")) }
+        o.answers["all"]?.let { kind ->
+            if (kind == Kind.FIELD) return listOf(fieldBlock(context, o))
+            return listOf(Block(kind, o.from, o.to, Status.SURE, label(kind, o.notes["all"]), o.id, "all"))
+        }
         val stops = o.stops
         if (stops.isEmpty()) return listOf(Block(Kind.AWAY, o.from, o.to, Status.UNKNOWN, "Away", o.id, "all", guess = fieldGuess(o)))
         return stops.map { s ->
             val answered = o.answers[s.key]
             val place = Places.at(context, s.lat, s.lon)
             when {
-                answered != null -> Block(answered, s.from, s.to, Status.SURE, answered.label, o.id, s.key)
+                answered != null -> Block(answered, s.from, s.to, Status.SURE, label(answered, o.notes[s.key]), o.id, s.key)
                 place?.sure == true -> Block(place.kind, s.from, s.to, Status.SURE, place.kind.label, o.id, s.key)
                 place != null -> Block(place.kind, s.from, s.to, Status.GUESS, place.kind.label + "?", o.id, s.key, guess = place.kind)
                 else -> Block(Kind.AWAY, s.from, s.to, Status.UNKNOWN, "Away · new place", o.id, s.key, guess = fieldGuess(o))
             }
         }
+    }
+
+    /**
+     * Field time as he counts it: from the first conversation to the last call. His taps decide when there are any;
+     * otherwise the phone guesses: the first stop away from the Kingdom Hall, to the end of the last stop before he
+     * heads home. Walking to the territory and the walk home don't count.
+     */
+    fun fieldBlock(context: Context, o: Trail.Outing): Block {
+        val day = startOfDay(0).let { today -> if (o.from >= today) today else java.util.Calendar.getInstance().apply { timeInMillis = o.from
+            set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }.timeInMillis }
+        val (tapStart, tapEnd) = Field.marks(context, day)
+        val stops = Trail.fieldStops(o.points).filter { s -> Places.at(context, s.lat, s.lon)?.kind != Kind.HALL }
+        val guessStart = stops.firstOrNull()?.from ?: o.from
+        val guessEnd = stops.lastOrNull()?.to ?: o.to
+        val start = tapStart?.takeIf { it in o.from..o.to } ?: guessStart
+        val end = tapEnd?.takeIf { it in o.from..o.to } ?: guessEnd
+        val tapped = tapStart?.let { it in o.from..o.to } == true && tapEnd?.let { it in o.from..o.to } == true
+        return Block(Kind.FIELD, start, maxOf(end, start + 60_000L), Status.SURE, if (tapped) "Field" else "Field (guessed)", o.id, "all")
     }
 
     /** A morning out with several stops looks like field service: offered first, never assumed. */

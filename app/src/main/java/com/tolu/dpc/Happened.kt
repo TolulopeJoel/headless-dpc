@@ -35,16 +35,11 @@ object Happened {
 
         val ids = JSONArray()
         val zone = TimeZone.getDefault().id
-        Day.blocks(context, dayStart).filter { it.status != Day.Status.MISSED && !it.fromPlan }.forEach { b ->
-            val title = when (b.status) {
-                Day.Status.UNKNOWN -> "Away (unlabelled)"
-                Day.Status.GUESS -> "${b.kind.label}? (unconfirmed)"
-                else -> b.title
-            }
+        rows(context, dayStart).forEach { b ->
             val v = ContentValues().apply {
-                put(Events.CALENDAR_ID, cal); put(Events.TITLE, title); put(Events.DTSTART, b.from); put(Events.DTEND, b.to)
+                put(Events.CALENDAR_ID, cal); put(Events.TITLE, titleOf(b)); put(Events.DTSTART, b.from); put(Events.DTEND, b.to)
                 put(Events.EVENT_TIMEZONE, zone)
-                put(Events.DESCRIPTION, "kind=${b.kind.name}; status=${b.status.name}; late=${b.late}")
+                put(Events.DESCRIPTION, descriptionOf(b))
             }
             resolver.insert(Events.CONTENT_URI, v)?.lastPathSegment?.toLongOrNull()?.let { ids.put(it) }
         }
@@ -64,7 +59,38 @@ object Happened {
         true
     }.getOrElse { Log.e(TAG, "writing the day failed", it); false }
 
-    /** The numbers: fun-app minutes by app, JW Library minutes, the entry, the night (dark → light), reviewed. */
+    /** The blocks a day writes: what happened, not what was only planned or missed. */
+    private fun rows(context: Context, dayStart: Long) = Day.blocks(context, dayStart).filter { it.status != Day.Status.MISSED && !it.fromPlan }
+
+    private fun titleOf(b: Day.Block) = when (b.status) {
+        Day.Status.UNKNOWN -> "Away (unlabelled)"
+        Day.Status.GUESS -> "${b.kind.label}? (unconfirmed)"
+        else -> b.title
+    }
+
+    private fun descriptionOf(b: Day.Block) = "kind=${b.kind.name}; status=${b.status.name}; late=${b.late}"
+
+    /**
+     * adb (ACTION_EXPORT_HAPPENED): `days` days from the one starting at `from`, exactly as they'd be written to the
+     * calendar, into files/happened.json for the laptop's report (weekly_report.py --phone). For weeks the calendar
+     * missed: 11–17 Oct had no Happened calendar on the phone, so nothing was written.
+     */
+    fun export(context: Context, from: Long, days: Int): java.io.File {
+        val out = JSONArray()
+        val day = Calendar.getInstance().apply { timeInMillis = from }
+        repeat(days) {
+            val dayStart = day.timeInMillis
+            val events = JSONArray()
+            rows(context, dayStart).forEach { b ->
+                events.put(JSONObject().put("title", titleOf(b)).put("start", b.from).put("end", b.to).put("desc", descriptionOf(b)))
+            }
+            out.put(JSONObject().put("day", dayStart).put("events", events).put("summary", summary(context, dayStart)))
+            day.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        return java.io.File(context.getExternalFilesDir(null), "happened.json").apply { writeText(out.toString()) }
+    }
+
+    /** The numbers: fun-app minutes by app, JW Library minutes, the entry, the night (dark → light), what was on after 22:00, reviewed. */
     fun summary(context: Context, dayStart: Long): JSONObject {
         val dayEnd = dayStart + 86_400_000L
         val byApp = Usage.minutesByApp(context, dayStart, dayEnd)
@@ -77,8 +103,15 @@ object Happened {
             put("jw", byApp["org.jw.jwlibrary.mobile"] ?: 0)
             put("entry", entryOn(context, dayStart))
             Usage.night(context, dayStart)?.let { (dark, light) -> put("dark", hhmm.format(dark)); put("light", hhmm.format(light)) }
+            // The apps in front from 22:00 to 05:00 the next morning, by name, to find what keeps the phone on (28 Oct 2026).
+            val late = JSONObject()
+            Usage.minutesByApp(context, dayStart + 22 * 3_600_000L, dayStart + 29 * 3_600_000L).filterValues { it > 0 }.entries
+                .groupBy { ColourKeeper.label(context, it.key) }.mapValues { (_, e) -> e.sumOf { it.value } }
+                .entries.sortedByDescending { it.value }.forEach { late.put(it.key, it.value) }
+            put("late", late)
             put("reviewed", Day.reviewed(context, dayStart))
             put("passes", Field.passesOn(context, dayStart))
+            Reading.dayResult(context, dayStart)?.let { put("reading", it) }
         }
     }
 

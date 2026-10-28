@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Watches which app comes to the front (for the blocked screen and for Colour); no window content is read. -->
+<!-- Watches which app comes to the front (for the blocked screen and for Colour). Window content is read only while
+     FieldBackup drives Field Service's Backup screen and the share sheet (28 Oct 2026). -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="0"
-    android:canRetrieveWindowContent="false"
+    android:canRetrieveWindowContent="true"
     android:description="@string/block_screen_description" />

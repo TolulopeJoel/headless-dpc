@@ -55,13 +55,15 @@ class NowActivity : Activity() {
             content.addView(ui.bar(frac, if (ui.dark) 0xFFE8D6A0.toInt() else colour))
             content.addView(ui.ends("till ${hhmm(window.end)}", left(window.end - now)))
         } else if (mode == "entry") content.addView(ui.sub("till you've written today's entry"))
+        TodayLine.text(this)?.let { content.addView(ui.text("Today: $it", 15f, ui.strong, ui.ink, 14)) }
 
         // What's resting.
         val tethering = (getSystemService(USER_SERVICE) as UserManager).hasUserRestriction(UserManager.DISALLOW_CONFIG_TETHERING)
         val rules: List<Pair<String, String>> = when (mode) {
             "morning" -> listOf("Phone" to "JW Library, Àṣàrò, Field Service", "Chrome" to "jw.org + search")
             "entry" -> listOf("Phone" to "waits for today's entry")
-            "field", "study" -> listOf("Fun apps" to "resting", "Chrome" to "jw.org only")
+            "field" -> listOf("Apps and sites" to "open", "Hotspot" to "off 10:30–13:00")
+            "study" -> listOf("Fun apps" to "resting", "Chrome" to "jw.org only")
             "work", "bank" -> listOf("Phone" to "open", "Side projects" to "resting")
             "night" -> listOf("Phone" to "calls, clock, tools", "JW Library, Àṣàrò" to "till 22:00")
             else -> if (state.phase == ScheduleReceiver.Phase.NIGHT) listOf("Phone" to "calls, clock, tools", "Side projects" to "open till offline")
@@ -90,6 +92,9 @@ class NowActivity : Activity() {
             if (minute < Ask.REVIEW_AT) add(Triple(todayAt(Ask.REVIEW_AT), "Review the day", ui.ink))
             if (minute < ScheduleReceiver.deviceRulesFrom()) add(Triple(todayAt(ScheduleReceiver.deviceRulesFrom()), "Laptop offline", ui.ink))
         }.filter { it.first > now }.sortedBy { it.first }.take(4)
+        if (People.all(this).isNotEmpty()) content.addView(ui.text("Your people  →", 14f, ui.strong, ui.ink, 14).apply {
+            setOnClickListener { startActivity(android.content.Intent(this@NowActivity, PeopleActivity::class.java)) }
+        })
         content.addView(ui.kick("Next today", top = 18))
         if (ahead.isEmpty()) content.addView(ui.sub("Nothing else today.", 8))
         ahead.forEach { (at, label, c) -> content.addView(ui.edged(hhmm(at), label, c)) }
@@ -108,6 +113,8 @@ class NowActivity : Activity() {
             footer.addView(start(ui, Kind.STUDY, "Start study", "Personal Bible study"))
             footer.addView(start(ui, Kind.PREP, "Start meeting prep", "${Logbook.nextMeeting().label} · ${if (Logbook.nextMeeting() == Logbook.Meeting.MIDWEEK) "Thursday" else "Sunday"}"))
         }
+        // Always one tap away: where today's reading check stands and what happened.
+        footer.addView(ui.link("Reading check: " + Reading.status(this).name.lowercase()) { startActivity(Intent(this, ReadingActivity::class.java)) })
         setContentView(ui.page(content, footer))
     }
 
