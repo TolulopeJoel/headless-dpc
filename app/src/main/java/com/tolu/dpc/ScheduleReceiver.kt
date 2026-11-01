@@ -196,7 +196,7 @@ class ScheduleReceiver : BroadcastReceiver() {
          */
         private const val BIBLE_UNTIL = 22 * 60
         private const val DEVICE_RULES_FROM = 21 * 60
-        private val BIBLE_APPS = setOf("org.jw.jwlibrary.mobile", "com.asaro.meditation")
+        private val BIBLE_APPS = setOf("org.jw.jwlibrary.mobile", "com.asaro.meditation", OWN_WORDS)
 
         /** Weekdays from 08:56 (his ask, 28 Oct 2026), the work HR site opens in Chrome even while the morning gate keeps Chrome to jw.org. */
         private const val WORK_SITES_FROM = 8 * 60 + 56
@@ -286,10 +286,12 @@ class ScheduleReceiver : BroadcastReceiver() {
             CHROME,                         // jw.org and wol.jw.org only, set by chromePolicy
             "org.jw.jwlibrary.mobile",
             "com.asaro.meditation",
+            OWN_WORDS,                      // In My Own Words: where the writing lives, open like Àṣàrò
             FIELD_SERVICE,                  // so hours can be logged on an early public-witnessing morning
         )
 
         private const val FIELD_SERVICE = "com.lostpixels.fieldservice"
+        private const val OWN_WORDS = "com.tolu.ownwords"
 
         /** jw.org covers its subdomains, wol.jw.org included; jw-cdn.org serves their images and media. */
         private val JW_SITES = arrayOf("jw.org", "wol.jw.org", "jw-cdn.org")

@@ -83,7 +83,7 @@ internal object ColourKeeper {
 
     /** On purpose: these pause the session, and 10 minutes straight in them clears it. */
     private val PURPOSE = setOf(
-        "org.jw.jwlibrary.mobile", "com.asaro.meditation", "com.lostpixels.fieldservice",
+        "org.jw.jwlibrary.mobile", "com.asaro.meditation", "com.tolu.ownwords", "com.lostpixels.fieldservice",
         "com.sh.smart.caller", "com.google.android.apps.maps", "com.google.android.apps.tachyon",
         "com.Slack", "com.transsion.deskclock", "com.transsnet.palmpay",
     )
